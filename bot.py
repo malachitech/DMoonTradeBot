@@ -117,5 +117,14 @@ async def deposit_sol(update: Update, context: CallbackContext, message=None):
 async def buy_sol(update: Update, context: CallbackContext, message=None):
     await message.reply_text("Enter the amount of SOL you want to buy.")
 
+async def check_active_trades(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    active_trades = user_trades.get(user_id, [])
+    if not active_trades:
+        await update.message.reply_text("You have no active trades.")
+    else:
+        trades_list = '\n'.join(active_trades)
+        await update.message.reply_text(f"Your active trades:\n{trades_list}")
+
 if __name__ == "__main__":
     main()

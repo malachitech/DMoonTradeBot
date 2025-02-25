@@ -31,26 +31,11 @@ def start(update: Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text("🤖 Welcome! Choose an option:", reply_markup=reply_markup)
 
-def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("set_target", set_target))
-    app.add_handler(CommandHandler("active_trades", check_active_trades))
-    app.add_handler(CommandHandler("total_fees", show_collected_fees))
-    app.add_handler(CommandHandler("set_buy_amount", set_buy_amount))
-    app.add_handler(CommandHandler("check_balance", check_balance))
-    app.add_handler(CommandHandler("fund_bot", fund_bot))
-    app.add_handler(CommandHandler("check_account_details", check_account_details))
-    app.add_handler(CommandHandler("deposit_sol", deposit_sol))
-    app.add_handler(CommandHandler("buy_sol", buy_sol))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_group_link))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    
-    logging.info("Bot is running...")
-    loop = asyncio.get_event_loop()
-    loop.create_task(monitor_prices())  # Background monitoring
-    
-    app.run_polling()
+def set_target(update: Update, context: CallbackContext):
+    update.message.reply_text("⚙️ Set target feature coming soon!")
+
+def check_active_trades(update: Update, context: CallbackContext):
+    update.message.reply_text("📊 Active trades feature coming soon!")
 
 def show_collected_fees(update: Update, context: CallbackContext):
     global collected_fees
@@ -110,6 +95,27 @@ def button_callback(update: Update, context: CallbackContext):
         deposit_sol(update, context)
     elif query.data == "buy_sol":
         buy_sol(update, context)
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("set_target", set_target))
+    app.add_handler(CommandHandler("active_trades", check_active_trades))
+    app.add_handler(CommandHandler("total_fees", show_collected_fees))
+    app.add_handler(CommandHandler("set_buy_amount", set_buy_amount))
+    app.add_handler(CommandHandler("check_balance", check_balance))
+    app.add_handler(CommandHandler("fund_bot", fund_bot))
+    app.add_handler(CommandHandler("check_account_details", check_account_details))
+    app.add_handler(CommandHandler("deposit_sol", deposit_sol))
+    app.add_handler(CommandHandler("buy_sol", buy_sol))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text("Unknown command.")))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    
+    logging.info("Bot is running...")
+    loop = asyncio.get_event_loop()
+    loop.create_task(asyncio.sleep(1))  # Placeholder task
+    
+    app.run_polling()
 
 if __name__ == "__main__":
     main()

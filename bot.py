@@ -22,6 +22,15 @@ user_sell_targets = {}  # Stores user-defined sell targets
 user_wallets = {}  # Store user wallet addresses securely
 collected_fees = 0  # Track collected fees
 
+def start(update: Update, context: CallbackContext):
+    keyboard = [[InlineKeyboardButton("Check Balance", callback_data='check_balance')],
+                [InlineKeyboardButton("Fund Bot", callback_data='fund_bot')],
+                [InlineKeyboardButton("Check Account Details", callback_data='check_account_details')],
+                [InlineKeyboardButton("Deposit SOL", callback_data='deposit_sol')],
+                [InlineKeyboardButton("Buy SOL", callback_data='buy_sol')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("🤖 Welcome! Choose an option:", reply_markup=reply_markup)
+
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -87,6 +96,20 @@ def deposit_sol(update: Update, context: CallbackContext):
 
 def buy_sol(update: Update, context: CallbackContext):
     update.message.reply_text("🛒 Buying SOL... (Feature in development)")
+
+def button_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    if query.data == "check_balance":
+        check_balance(update, context)
+    elif query.data == "fund_bot":
+        fund_bot(update, context)
+    elif query.data == "check_account_details":
+        check_account_details(update, context)
+    elif query.data == "deposit_sol":
+        deposit_sol(update, context)
+    elif query.data == "buy_sol":
+        buy_sol(update, context)
 
 if __name__ == "__main__":
     main()

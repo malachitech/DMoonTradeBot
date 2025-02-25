@@ -86,6 +86,23 @@ async def check_balance(update: Update, context: CallbackContext, message=None):
         logging.error(f"Error fetching balance: {e}")
         await message.reply_text("Failed to retrieve balance. Please try again later.")
 
+async def set_target(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if len(context.args) == 0:
+        await update.message.reply_text("Usage: /set_target <multiplier> (e.g., /set_target 3)")
+        return
+    
+    try:
+        target_multiplier = float(context.args[0])
+        if target_multiplier <= 1:
+            await update.message.reply_text("Target must be greater than 1X (e.g., 2X, 3X).")
+            return
+        
+        user_sell_targets[user_id] = target_multiplier
+        await update.message.reply_text(f"✅ Sell target set to {target_multiplier}X. Bot will sell when price reaches this.")
+    except ValueError:
+        await update.message.reply_text("Invalid target! Use a number (e.g., /set_target 3).")
+
 async def fund_bot(update: Update, context: CallbackContext, message=None):
     await message.reply_text("Send SOL to the provided deposit address.")
 

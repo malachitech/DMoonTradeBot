@@ -138,4 +138,9 @@ if __name__ == "__main__":
     import nest_asyncio
     nest_asyncio.apply()
     
-    asyncio.run(run_bot())
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(run_bot())  # Run as a background task
+    else:
+        loop.run_until_complete(run_bot())
+

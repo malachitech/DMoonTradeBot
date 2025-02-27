@@ -139,4 +139,8 @@ if __name__ == "__main__":
         asyncio.set_event_loop(loop)
 
     loop.create_task(run_bot())  # Schedule the bot without blocking
-    loop.run_forever()  # Keep the event loop running
+
+    try:
+        loop.run_forever()  # Keep the loop running
+    except KeyboardInterrupt:
+        pass  # Allow graceful shutdown

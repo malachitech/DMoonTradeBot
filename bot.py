@@ -8,6 +8,7 @@ import string
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+import nest_asyncio
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +19,8 @@ user_trades = {}
 user_sell_targets = {}
 user_wallets = {}
 collected_fees = 0
+
+nest_asyncio.apply()
 
 def generate_wallet():
     return "SOL_WALLET_" + ''.join(random.choices(string.ascii_letters + string.digits, k=10))
@@ -128,19 +131,6 @@ async def run_bot():
     
     await app.run_polling()
 
-
-
-
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.create_task(run_bot())  # Schedule the bot without blocking
-
-    try:
-        loop.run_forever()  # Keep the loop running
-    except KeyboardInterrupt:
-        pass  # Allow graceful shutdown
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(run_bot())

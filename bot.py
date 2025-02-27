@@ -8,7 +8,6 @@ import string
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
-import nest_asyncio
 
 # Load environment variables
 load_dotenv()
@@ -19,8 +18,6 @@ user_trades = {}
 user_sell_targets = {}
 user_wallets = {}
 collected_fees = 0
-
-nest_asyncio.apply()
 
 def generate_wallet():
     return "SOL_WALLET_" + ''.join(random.choices(string.ascii_letters + string.digits, k=10))
@@ -55,12 +52,18 @@ def extract_contract_address(message: str):
 
 def execute_trade(user_id, contract_address, platform, sol_amount):
     global collected_fees
+    if user_wallets.get(user_id, {}).get("balance", 0) < sol_amount:
+        logging.error("Insufficient balance for trade")
+        return
+    
     buy_price = get_token_price(contract_address, platform)
     if not buy_price:
         logging.error("Failed to fetch token price")
         return
+    
     fee = sol_amount * 0.005  # 0.5% buy fee
     collected_fees += fee
+    user_wallets[user_id]["balance"] -= (sol_amount + fee)
     user_trades[user_id] = {"contract": contract_address, "platform": platform, "buy_price": buy_price, "sol_amount": sol_amount}
     logging.info(f"Bought {sol_amount} SOL worth of {contract_address}. Fee: {fee}")
 
@@ -132,5 +135,4 @@ async def run_bot():
     await app.run_polling()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(run_bot())
+    asyncio.run(run_bot())

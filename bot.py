@@ -2,7 +2,8 @@ import os
 import logging
 import re
 import requests
-import asyncio
+import nest_asyncio
+nest_asyncio.apply()
 import random
 import string
 from dotenv import load_dotenv
@@ -135,8 +136,6 @@ async def run_bot():
     await app.run_polling()
 
 if __name__ == "__main__":
-    import nest_asyncio
-    nest_asyncio.apply()
     
     loop = asyncio.get_event_loop()
     if loop.is_running():

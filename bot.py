@@ -3,7 +3,6 @@ import logging
 import re
 import requests
 import asyncio
-import json
 import random
 import string
 from dotenv import load_dotenv
@@ -22,28 +21,6 @@ collected_fees = 0
 
 def generate_wallet():
     return "SOL_WALLET_" + ''.join(random.choices(string.ascii_letters + string.digits, k=10))
-
-def main():
-    app = Application.builder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("set_target", set_target))
-    app.add_handler(CommandHandler("wallet", wallet_info))
-    app.add_handler(CommandHandler("deposit", deposit_info))
-    app.add_handler(CommandHandler("reset_wallet", reset_wallet))
-    app.add_handler(CommandHandler("active_trades", check_active_trades))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_group_link))
-    
-    logging.info("Bot is running...")
-    loop = asyncio.get_event_loop()
-    loop.create_task(monitor_prices())
-    
-    app.run_webhook(
-    listen="0.0.0.0",
-    port=int(os.getenv("PORT", 8443)),
-    webhook_url=f"https://{os.getenv('RAILWAY_URL')}/webhook"
-)
-
 
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -134,5 +111,25 @@ async def reset_wallet(update: Update, context: CallbackContext):
 async def check_active_trades(update: Update, context: CallbackContext):
     await update.message.reply_text(f"Currently monitoring {len(user_trades)} trades.")
 
+async def main():
+    app = Application.builder().token(TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("set_target", set_target))
+    app.add_handler(CommandHandler("wallet", wallet_info))
+    app.add_handler(CommandHandler("deposit", deposit_info))
+    app.add_handler(CommandHandler("reset_wallet", reset_wallet))
+    app.add_handler(CommandHandler("active_trades", check_active_trades))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_group_link))
+    
+    logging.info("Bot is running...")
+    
+    # Start price monitoring as a background task
+    loop = asyncio.get_event_loop()
+    loop.create_task(monitor_prices())
+
+    # Start bot using long polling
+    await app.run_polling()
+
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

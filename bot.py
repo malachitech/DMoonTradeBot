@@ -2,6 +2,7 @@ import os
 import logging
 import re
 import requests
+import asyncio
 import nest_asyncio
 nest_asyncio.apply()
 import random
@@ -136,10 +137,7 @@ async def run_bot():
     await app.run_polling()
 
 if __name__ == "__main__":
+    import nest_asyncio
+    nest_asyncio.apply()
     
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(run_bot())  # Run as a background task
-    else:
-        loop.run_until_complete(run_bot())
-
+    asyncio.run(run_bot())

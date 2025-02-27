@@ -124,19 +124,10 @@ async def main():
     
     logging.info("Bot is running...")
     
-    # Start price monitoring as a background task
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     loop.create_task(monitor_prices())
-
-    # Start bot using long polling (without asyncio.run())
+    
     await app.run_polling()
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()  # Use the existing event loop
-    except RuntimeError:
-        loop = asyncio.new_event_loop()  # Create a new event loop if none exists
-        asyncio.set_event_loop(loop)
-    
-    loop.create_task(main())  # Schedule the bot to run
-    loop.run_forever()  # Keep it running indefinitely
+    asyncio.run(main())

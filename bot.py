@@ -128,8 +128,10 @@ async def main():
     loop = asyncio.get_event_loop()
     loop.create_task(monitor_prices())
 
-    # Start bot using long polling
+    # Start bot using long polling (without asyncio.run())
     await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Fix: Use existing event loop to avoid "RuntimeError: This event loop is already running"
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())

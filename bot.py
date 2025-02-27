@@ -23,7 +23,7 @@ collected_fees = 0
 def generate_wallet():
     return "SOL_WALLET_" + ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
-def main():
+async def main():
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -35,15 +35,15 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_group_link))
     
     logging.info("Bot is running...")
-    loop = asyncio.get_event_loop()
-    loop.create_task(monitor_prices())
     
-    app.run_webhook(
-    listen="0.0.0.0",
-    port=int(os.getenv("PORT", 8443)),
-    webhook_url=f"https://{os.getenv('RAILWAY_URL')}/webhook"
-)
-
+    asyncio.create_task(monitor_prices())
+    
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.getenv("PORT", 8443)),
+        url_path=TOKEN,
+        webhook_url=f"https://{os.getenv('RAILWAY_URL')}/{TOKEN}"
+    )
 
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -65,7 +65,7 @@ async def receive_group_link(update: Update, context: CallbackContext):
     contract_address, platform = extract_contract_address(group_link)
     if contract_address:
         await update.message.reply_text(f"Detected contract address: {contract_address} on {platform}. Initiating trade...")
-        execute_trade(update.message.chat_id, contract_address, platform, 0.1)  # Default to 0.1 SOL
+        execute_trade(update.message.chat_id, contract_address, platform, 0.1)
     else:
         await update.message.reply_text("No contract address found yet. Monitoring continues...")
 
@@ -79,7 +79,7 @@ def execute_trade(user_id, contract_address, platform, sol_amount):
     if not buy_price:
         logging.error("Failed to fetch token price")
         return
-    fee = sol_amount * 0.005  # 0.5% buy fee
+    fee = sol_amount * 0.005
     collected_fees += fee
     user_trades[user_id] = {"contract": contract_address, "platform": platform, "buy_price": buy_price, "sol_amount": sol_amount}
     logging.info(f"Bought {sol_amount} SOL worth of {contract_address}. Fee: {fee}")
@@ -135,4 +135,4 @@ async def check_active_trades(update: Update, context: CallbackContext):
     await update.message.reply_text(f"Currently monitoring {len(user_trades)} trades.")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

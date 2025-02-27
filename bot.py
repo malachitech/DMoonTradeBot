@@ -38,7 +38,12 @@ def main():
     loop = asyncio.get_event_loop()
     loop.create_task(monitor_prices())
     
-    app.run_polling()
+    app.run_webhook(
+    listen="0.0.0.0",
+    port=int(os.getenv("PORT", 8443)),
+    webhook_url=f"https://{os.getenv('RAILWAY_URL')}/webhook"
+)
+
 
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id

@@ -132,6 +132,7 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    # Fix: Use existing event loop to avoid "RuntimeError: This event loop is already running"
+    import asyncio
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    loop.create_task(main())  # Run the bot in the existing loop
+    loop.run_forever()  # Keep the script running

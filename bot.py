@@ -129,4 +129,15 @@ async def run_bot():
     await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.create_task(run_bot())  # Non-blocking scheduling
+
+    try:
+        loop.run_forever()  # Keep the loop running
+    except KeyboardInterrupt:
+        pass  # Allow graceful shutdown

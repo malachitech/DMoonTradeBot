@@ -13,3 +13,4 @@ typing_extensions==4.12.2
 urllib3==2.3.0
 nest_asyncio==1.6.0
 solders
+solana

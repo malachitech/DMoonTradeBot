@@ -111,7 +111,7 @@ async def reset_wallet(update: Update, context: CallbackContext):
 async def check_active_trades(update: Update, context: CallbackContext):
     await update.message.reply_text(f"Currently monitoring {len(user_trades)} trades.")
 
-async def main():
+async def run_bot():
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -124,17 +124,13 @@ async def main():
     
     logging.info("Bot is running...")
     
-    loop = asyncio.get_running_loop()
-    loop.create_task(monitor_prices())
+    asyncio.create_task(monitor_prices())
     
     await app.run_polling()
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    loop.create_task(main())
-    loop.run_forever()
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(run_bot())
+    else:
+        loop.run_until_complete(run_bot())

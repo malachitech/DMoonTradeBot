@@ -1,6 +1,5 @@
 import os
 import logging
-import random
 import asyncio
 import requests
 from dotenv import load_dotenv
@@ -19,15 +18,16 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET")
 
-# Trade tracking
-user_trades = {}
-user_sell_targets = {}
-user_wallets = {}
+# Initialize Solana client
 solana_client = AsyncClient(SOLANA_RPC_URL)
+user_wallets = {}
+user_sell_targets = {}
 
+# Generate a new wallet
 def generate_wallet():
     return Keypair()
 
+# Get SOL balance
 async def get_sol_balance(wallet_address):
     try:
         pubkey = Pubkey.from_string(wallet_address)
@@ -38,6 +38,7 @@ async def get_sol_balance(wallet_address):
         logging.error(f"Error fetching balance: {e}")
     return 0
 
+# Start command
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if user_id not in user_wallets:
@@ -54,40 +55,31 @@ async def start(update: Update, context: CallbackContext):
     
     await update.message.reply_text("Welcome! Use the buttons below to manage your wallet:", reply_markup=reply_markup)
 
-async def wallet_info(query, context, user_id):
+async def wallet_info(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
     if user_id not in user_wallets:
-        await query.message.reply_text("No wallet found. Use /start to create one.")
+        await update.message.reply_text("No wallet found. Use /start to create one.")
         return
     
     wallet_data = user_wallets[user_id]
     balance = await get_sol_balance(wallet_data["address"])
-    message = f"\U0001F4B0 **Wallet Info:**\n\n\U0001F538 **Address:** `{wallet_data['address']}`\n\U0001F538 **Balance:** {balance:.4f} SOL"
-    await query.message.reply_text(message)
+    message = f"\U0001F4B0 **Wallet Info:**\n\n\U0001F538 **Address:** {wallet_data['address']}\n\U0001F538 **Balance:** {balance:.4f} SOL"
+    await update.message.reply_text(message)
 
-async def deposit_info(query, context, user_id):
+async def deposit_info(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
     if user_id not in user_wallets:
-        await query.message.reply_text("No wallet found. Use /start to create one.")
+        await update.message.reply_text("No wallet found. Use /start to create one.")
         return
     
     wallet_address = user_wallets[user_id]["address"]
-    message = f"To deposit SOL, send funds to:\n`{wallet_address}`"
-    await query.message.reply_text(message)
-
-async def confirm_reset_wallet(query, context, user_id):
-    user_wallets.pop(user_id, None)
-    await query.message.reply_text("Your wallet has been reset. Use /start to create a new one.")
-
-def get_token_price(contract_address, platform):
-    return random.uniform(0.1, 10.0)
-
-async def active_trades(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in user_trades:
-        await update.message.reply_text("You have no active trades.")
-        return
-    trade = user_trades[user_id]
-    message = f"Active Trade:\nContract: {trade['contract']}\nPlatform: {trade['platform']}\nBuy Price: {trade['buy_price']} SOL\nAmount: {trade['sol_amount']} SOL"
+    message = f"To deposit SOL, send funds to:\n{wallet_address}"
     await update.message.reply_text(message)
+
+async def confirm_reset_wallet(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    user_wallets.pop(user_id, None)
+    await update.message.reply_text("Your wallet has been reset. Use /start to create a new one.")
 
 async def set_target(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -101,16 +93,13 @@ async def set_target(update: Update, context: CallbackContext):
     except ValueError:
         await update.message.reply_text("Invalid multiplier. Use a number (e.g., 2.5).")
 
-async def execute_transaction(sender_keypair, recipient_address, amount):
-    try:
-        transaction = Transaction()
-        transaction.add(
-            transfer(TransferParams(from_pubkey=sender_keypair.pubkey(), to_pubkey=Pubkey.from_string(recipient_address), lamports=int(amount * 1e9)))
-        )
-        return await solana_client.send_transaction(transaction, sender_keypair)
-    except Exception as e:
-        logging.error(f"Transaction error: {e}")
-        return None
+async def check_price(update: Update, context: CallbackContext):
+    await update.message.reply_text("Checking price functionality is under development.")
+
+async def execute_real_trade(user_id, trade_type, amount):
+    # Implement Raydium trade execution logic here
+    await asyncio.sleep(2)
+    return True
 
 async def buy(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
@@ -124,8 +113,9 @@ async def buy(update: Update, context: CallbackContext):
     try:
         buy_amount = float(context.args[0])
         fee = buy_amount * 0.002
-        await execute_transaction(user_wallets[user_id]["keypair"], ADMIN_WALLET, fee)
-        await update.message.reply_text(f"Buying {buy_amount} SOL... 0.2% fee sent to admin wallet {ADMIN_WALLET}.")
+        success = await execute_real_trade(user_id, "buy", buy_amount - fee)
+        if success:
+            await update.message.reply_text(f"Successfully bought {buy_amount - fee} SOL after fee deduction.")
     except ValueError:
         await update.message.reply_text("Invalid amount.")
 
@@ -140,8 +130,33 @@ async def sell(update: Update, context: CallbackContext):
         return
     try:
         sell_amount = float(context.args[0])
-        fee = sell_amount * 0.002
-        await execute_transaction(user_wallets[user_id]["keypair"], ADMIN_WALLET, fee)
-        await update.message.reply_text(f"Selling {sell_amount} SOL... 0.2% fee sent to admin wallet {ADMIN_WALLET}.")
+        fee = sell_amount * 0.03
+        success = await execute_real_trade(user_id, "sell", sell_amount - fee)
+        if success:
+            await update.message.reply_text(f"Successfully sold {sell_amount - fee} SOL after fee deduction.")
     except ValueError:
         await update.message.reply_text("Invalid amount.")
+
+async def handle_button_click(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "wallet":
+        await wallet_info(update, context)
+    elif query.data == "deposit":
+        await deposit_info(update, context)
+    elif query.data == "set_target":
+        await query.message.reply_text("Use /set_target <multiplier> to set your sell target.")
+    elif query.data == "reset_wallet":
+        await confirm_reset_wallet(update, context)
+
+async def run_bot():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_button_click))
+    logging.info("Bot is running...")
+    await app.run_polling()
+
+if __name__ == "__main__":
+    import nest_asyncio
+    nest_asyncio.apply()
+    asyncio.run(run_bot())

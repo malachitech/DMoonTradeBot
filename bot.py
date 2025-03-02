@@ -312,9 +312,15 @@ async def run_telegram_bot():
     await bot.run_polling()
     # ✅ Fix for "event loop already running" error
     try:
-        await bot.run_polling(close_loop=False)  # ✅ Prevents forced event loop closure
-    except RuntimeError as e:
-        logging.error(f"🚨 Telegram bot crashed: {e}")
+        await bot.initialize()
+        await bot.start_polling()
+        await bot.updater.start_polling()  # Only if using Updater
+        while True:
+            await asyncio.sleep(3600)  # Keep the bot alive
+    except (KeyboardInterrupt, SystemExit):
+        await bot.stop()
+        logging.info("🤖 Telegram Bot Stopped Gracefully")
+
 
     
 # ✅ Prevent Railway from Stopping the Bot

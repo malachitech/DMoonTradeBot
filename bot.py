@@ -32,9 +32,20 @@ if not BOT_WALLET_PRIVATE_KEY:
     logging.error("🚨 BOT_WALLET_PRIVATE_KEY is missing! Check Railway environment variables.")
     raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing! Set it in Railway.")
 
-logging.info(f"🔑 BOT_WALLET_PRIVATE_KEY Loaded: {BOT_WALLET_PRIVATE_KEY[:5]}... (truncated for security)")
+# Strip any extra spaces or newlines
+BOT_WALLET_PRIVATE_KEY = BOT_WALLET_PRIVATE_KEY.strip()
+
 # Output the private key
 print(f"Bot Wallet Private Key: {BOT_WALLET_PRIVATE_KEY}")
+print(f"Length of Private Key: {len(BOT_WALLET_PRIVATE_KEY)}")
+
+# Validate the private key
+try:
+    # Attempt to decode the private key
+    decoded_bytes = base58.b58decode(BOT_WALLET_PRIVATE_KEY)
+    print("✅ Private key is valid Base58.")
+except Exception as e:
+    print(f"❌ Private key is invalid: {e}")
 
 user_last_withdrawal = {}
 

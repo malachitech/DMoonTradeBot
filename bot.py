@@ -5,9 +5,7 @@ import requests
 import threading
 import base64
 import time
-import nest_asyncio
 import platform
-nest_asyncio.apply()
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
@@ -124,7 +122,17 @@ async def get_sol_balance(wallet_address):
         logging.error(f"Error fetching balance: {e}")
     return 0
 
-
+# async def get_sol_balance(wallet_address):
+#     try:
+#         pubkey = Pubkey.from_string(wallet_address)
+#         async with AsyncClient(SOLANA_RPC_URL) as client:  # Use a fresh client each time
+#             response = await client.get_balance(pubkey)
+#             if isinstance(response, GetBalanceResp):
+#                 return response.value / 1e9
+#         return 0
+#     except Exception as e:
+#         logging.error(f"Error fetching balance: {e}")
+#         return 0
 
 
 async def wallet_info(query):
@@ -301,13 +309,14 @@ async def run_telegram_bot():
     bot.add_handler(CallbackQueryHandler(handle_button_click))
 
     logging.info("🤖 Telegram Bot is Running...")
-
+    await bot.run_polling()
     # ✅ Fix for "event loop already running" error
     try:
         await bot.run_polling(close_loop=False)  # ✅ Prevents forced event loop closure
     except RuntimeError as e:
         logging.error(f"🚨 Telegram bot crashed: {e}")
 
+    
 # ✅ Prevent Railway from Stopping the Bot
 @app.route("/keep-alive", methods=["GET"])
 def keep_alive():
@@ -347,17 +356,38 @@ def run_flask():
     except Exception as e:
         logging.error(f"❌ Error starting Flask: {e}")
 
+
 if __name__ == "__main__":
-    import threading
     import asyncio
 
+    # Run Flask in the main thread
     logging.info("🚀 Starting Flask Webhook & Telegram Bot...")
+    from waitress import serve  # Use Waitress universally for simplicity
 
-    # ✅ Start Flask in a separate thread
-    threading.Thread(target=run_flask, daemon=True).start()
+    # Start Flask in a thread (compatible with Waitress)
+    flask_thread = threading.Thread(
+        target=serve, 
+        args=(app,), 
+        kwargs={"host": "0.0.0.0", "port": 5000},
+        daemon=True
+    )
+    flask_thread.start()
 
-    # ✅ Run Telegram bot inside the existing event loop
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_telegram_bot())  # ✅ Run Telegram bot properly
+    # Run the Telegram bot in the main thread
+    asyncio.run(run_telegram_bot())
 
-    loop.run_forever()  # ✅ Keeps the event loop running without crashes
+
+# if __name__ == "__main__":
+#     import threading
+#     import asyncio
+
+#     logging.info("🚀 Starting Flask Webhook & Telegram Bot...")
+
+#     # ✅ Start Flask in a separate thread
+#     threading.Thread(target=run_flask, daemon=True).start()
+
+#     # ✅ Run Telegram bot inside the existing event loop
+#     loop = asyncio.get_event_loop()
+#     loop.create_task(run_telegram_bot())  # ✅ Run Telegram bot properly
+
+#     loop.run_forever()  # ✅ Keeps the event loop running without crashes

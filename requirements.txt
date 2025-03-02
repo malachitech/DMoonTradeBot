@@ -18,4 +18,4 @@ flask
 asyncio
 gunicorn
 base58
-telegram
+waitress

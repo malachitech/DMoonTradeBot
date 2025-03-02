@@ -28,7 +28,7 @@ SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
 
-bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
+bot_wallet = BOT_WALLET_PRIVATE_KEY
 
 user_last_withdrawal = {}
 

@@ -27,7 +27,14 @@ SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
 
-bot_wallet = BOT_WALLET_PRIVATE_KEY
+# ✅ Ensure the private key exists before using it
+if not BOT_WALLET_PRIVATE_KEY:
+    logging.error("🚨 BOT_WALLET_PRIVATE_KEY is missing! Check Railway environment variables.")
+    raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing! Set it in Railway.")
+
+logging.info(f"🔑 BOT_WALLET_PRIVATE_KEY Loaded: {BOT_WALLET_PRIVATE_KEY[:5]}... (truncated for security)")
+# Output the private key
+print(f"Bot Wallet Private Key: {BOT_WALLET_PRIVATE_KEY}")
 
 user_last_withdrawal = {}
 
@@ -37,12 +44,6 @@ user_wallets = {}
 user_sell_targets = {}
 user_active_trades = {}
 
-# ✅ Ensure the private key exists before using it
-if not BOT_WALLET_PRIVATE_KEY:
-    logging.error("🚨 BOT_WALLET_PRIVATE_KEY is missing! Check Railway environment variables.")
-    raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing! Set it in Railway.")
-
-logging.info(f"🔑 BOT_WALLET_PRIVATE_KEY Loaded: {BOT_WALLET_PRIVATE_KEY[:5]}... (truncated for security)")
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)

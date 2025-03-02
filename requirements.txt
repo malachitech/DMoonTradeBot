@@ -14,3 +14,7 @@ urllib3==2.3.0
 nest_asyncio==1.6.0
 solders
 solana
+flask
+asyncio
+gunicorn
+base58

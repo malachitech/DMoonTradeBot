@@ -27,8 +27,10 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
+private_key = base58.b58encode(BOT_WALLET_PRIVATE_KEY).decode("utf-8")
 
-bot_wallet = BOT_WALLET_PRIVATE_KEY
+
+bot_wallet = private_key
 
 user_last_withdrawal = {}
 

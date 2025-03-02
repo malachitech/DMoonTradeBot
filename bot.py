@@ -5,6 +5,9 @@ import requests
 import threading
 import base64
 import time
+import nest_asyncio
+import platform
+nest_asyncio.apply()
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
@@ -17,19 +20,15 @@ from solders.system_program import TransferParams, transfer
 from flask import Flask, request, jsonify
 
 
-
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
-# bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
+bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
 
 user_last_withdrawal = {}
-
-
-app = Flask(__name__)
 
 # Initialize Solana client
 solana_client = AsyncClient(SOLANA_RPC_URL)
@@ -37,57 +36,75 @@ user_wallets = {}
 user_sell_targets = {}
 user_active_trades = {}
 
-
-async def start(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in user_wallets:
-        keypair = Keypair()
-        address = str(keypair.pubkey())
-        balance = await get_sol_balance(address)
-        user_wallets[user_id] = {"keypair": keypair, "address": address, "balance": balance}
-        await update.message.reply_text("Welcome! Your wallet has been created.")
-    else:
-        await update.message.reply_text("Welcome back! Your wallet is already set up.")
+# ✅ Ensure the private key exists before using it
+if not BOT_WALLET_PRIVATE_KEY:
+    raise ValueError("🚨 Error: BOT_WALLET_PRIVATE_KEY is missing in environment variables!")
 
 
-# ✅ Proper Phantom Webhook to Verify Solana Transactions
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+
+
+# ✅ Flask Webhook to Handle Solana Deposits
 @app.route("/phantom_webhook", methods=["POST"])
-async def phantom_webhook():
+def phantom_webhook():
     data = request.json
     transaction_id = data.get("transactionId")
 
     if not transaction_id:
+        logging.error("🚨 Missing transactionId in webhook request")
         return jsonify({"error": "Missing transactionId"}), 400
 
-    async with AsyncClient(SOLANA_RPC_URL) as client:
-        response = await client.get_confirmed_transaction(transaction_id)
+    loop = asyncio.get_event_loop()
+    result = loop.run_until_complete(check_transaction(transaction_id))
 
-        if response and response.get("result"):  # ✅ Improved validation
-            print(f"✅ Transaction Approved: {transaction_id}")
-            return jsonify({"status": "success"}), 200
-        else:
-            print(f"❌ Transaction Failed: {transaction_id}")
-            return jsonify({"status": "failed"}), 400
-
-# ✅ Flask Function for Running on a Separate Thread
-def run_flask():
-    print("🌍 Flask Webhook is Running on port 5000...")
-    app.run(host="0.0.0.0", port=5000, debug=True)
-
-# ✅ Telegram Bot Function
-async def run_telegram_bot():
-    bot = Application.builder().token(TOKEN).build()
-    bot.add_handler(CommandHandler("start", start))
-    print("🤖 Telegram Bot is Running...")
-    await bot.run_polling()
-
-if __name__ == "__main__":
-    # Run Flask & Telegram in separate threads for Railway Deployment
-    threading.Thread(target=run_flask, daemon=True).start()
-    asyncio.run(run_telegram_bot())
+    if result:
+        logging.info(f"✅ Transaction Approved: {transaction_id}")
+        return jsonify({"status": "success"}), 200
+    else:
+        logging.warning(f"❌ Transaction Failed: {transaction_id}")
+        return jsonify({"status": "failed"}), 400
 
 
+async def start(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
 
+    if user_id not in user_wallets:
+        keypair = Keypair()
+        address = str(keypair.pubkey())
+        balance = await get_sol_balance(address)
+
+        user_wallets[user_id] = {
+            "keypair": keypair,
+            "address": address,
+            "balance": balance
+        }
+        message = (
+            f"✅ Welcome! Your wallet has been created.\n"
+            f"📌 Address: `{address}`\n"
+            f"💰 Balance: {balance:.4f} SOL"
+        )
+    else:
+        wallet_data = user_wallets[user_id]
+        message = (
+            f"👋 Welcome back!\n"
+            f"📌 Address: `{wallet_data['address']}`\n"
+            f"💰 Balance: {wallet_data['balance']:.4f} SOL"
+        )
+
+    # ✅ Inline buttons for actions
+    keyboard = [
+        [InlineKeyboardButton("💼 Wallet Info", callback_data="wallet"),
+         InlineKeyboardButton("💰 Deposit", callback_data="deposit")],
+        [InlineKeyboardButton("🎯 Set Sell Target", callback_data="set_target"),
+         InlineKeyboardButton("🔄 Reset Wallet", callback_data="reset_wallet")],
+        [InlineKeyboardButton("📤 Withdraw SOL", callback_data="withdraw"),
+         InlineKeyboardButton("📊 Active Trades", callback_data="active_trades")],
+        [InlineKeyboardButton("❓ Help", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(message, parse_mode="Markdown", reply_markup=reply_markup)
 # Generate a new wallet
 def generate_wallet():
     return Keypair()
@@ -134,13 +151,13 @@ async def confirm_reset_wallet(query):
     await query.message.reply_text("Are you sure you want to reset your wallet? This action cannot be undone.", reply_markup=reply_markup)
 
 
-async def monitor_wallet(wallet_address):
-    async with AsyncClient(SOLANA_RPC_URL) as client:
-        sub_id = await client.websocket_subscribe(
-            f"accountSubscribe {wallet_address} commitment=finalized"
-        )
-        async for msg in client.websocket_recv():
-            print("🔔 New transaction detected:", msg)
+# async def monitor_wallet(wallet_address):
+#     async with AsyncClient(SOLANA_RPC_URL) as client:
+#         sub_id = await client.websocket_subscribe(
+#             f"accountSubscribe {wallet_address} commitment=finalized"
+#         )
+#         async for msg in client.websocket_recv():
+#             print("🔔 New transaction detected:", msg)
 async def withdraw_phantom(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     now = time.time()
@@ -167,7 +184,7 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
             return
 
         # Check bot wallet balance
-        bot_balance = await get_sol_balance(str(BOT_WALLET_PRIVATE_KEY.pubkey()))
+        bot_balance = await get_sol_balance(str(bot_wallet.pubkey()))
         if amount > bot_balance:
             await update.message.reply_text(f"Insufficient bot balance. Available: {bot_balance:.4f} SOL")
             return
@@ -175,14 +192,14 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
         # Construct transaction
         transaction = Transaction()
         params = TransferParams(
-            from_pubkey=BOT_WALLET_PRIVATE_KEY.pubkey(),
+            from_pubkey=bot_wallet.pubkey(),
             to_pubkey=recipient_pubkey,
             lamports=int(amount * 1e9),
         )
         transaction.add(transfer(params))
 
         # Send and confirm transaction
-        response = await solana_client.send_transaction(transaction, BOT_WALLET_PRIVATE_KEY)
+        response = await solana_client.send_transaction(transaction, bot_wallet)
         await update.message.reply_text(f"✅ Successfully sent {amount} SOL to {recipient}\nTransaction: {response}")
 
     except Exception as e:
@@ -193,7 +210,7 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
 async def monitor_bot_wallet():
     async with AsyncClient(SOLANA_RPC_URL) as client:
         sub_id = await client.websocket_subscribe(
-            f"accountSubscribe {BOT_WALLET_PRIVATE_KEY.pubkey()} commitment=finalized"
+            f"accountSubscribe {bot_wallet.pubkey()} commitment=finalized"
         )
         async for msg in client.websocket_recv():
             print("🔔 New deposit detected:", msg)
@@ -258,32 +275,85 @@ async def handle_button_click(update: Update, context: CallbackContext):
     else:
         await query.message.edit_text("No wallet found to refresh.")
     
+# ✅ Check Solana Transaction Validity
+async def check_transaction(transaction_id):
+    async with AsyncClient(SOLANA_RPC_URL) as client:
+        response = await client.get_confirmed_transaction(transaction_id)
+        return bool(response and response.get("result"))
 
 
+# ✅ Telegram Bot Function
 async def run_telegram_bot():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("withdraw", withdraw_phantom))
-    
+    bot = Application.builder().token(TOKEN).build()
+
+    # ✅ Register all command handlers
+    bot.add_handler(CommandHandler("start", start))
+    bot.add_handler(CommandHandler("withdraw", withdraw_phantom))
+    bot.add_handler(CommandHandler("set_target", set_sell_target))
+    bot.add_handler(CommandHandler("active_trades", active_trades))
+    bot.add_handler(CommandHandler("help", help_command))
+
+ # ✅ Register callback handler for button clicks
+    bot.add_handler(CallbackQueryHandler(handle_button_click))
+
     logging.info("🤖 Telegram Bot is Running...")
-    await app.run_polling()
+
+    # ✅ Fix for "event loop already running" error
+    try:
+        await bot.run_polling(close_loop=False)  # ✅ Prevents forced event loop closure
+    except RuntimeError as e:
+        logging.error(f"🚨 Telegram bot crashed: {e}")
+
+# ✅ Prevent Railway from Stopping the Bot
+@app.route("/keep-alive", methods=["GET"])
+def keep_alive():
+    return "Bot is running", 200
 
 def run_flask():
-    logging.info("🌍 Flask Webhook is Running...")
-    app.run(host="0.0.0.0", port=5000)
+    logging.info("🚀 Running Flask in Production Mode...")
 
-async def main():
-    # Run Telegram bot & Flask server together
-    loop = asyncio.get_running_loop()
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
+    try:
+        if platform.system() == "Windows":  
+            # ✅ Use Waitress on Windows
+            from waitress import serve
+            logging.info("🌍 Using Waitress WSGI server on Windows...")
+            serve(app, host="0.0.0.0", port=5000)
 
-    await run_telegram_bot()
+        else:  
+            # ✅ Use Gunicorn on Linux/macOS
+            from gunicorn.app.base import BaseApplication
+
+            class FlaskApp(BaseApplication):
+                def __init__(self, app, options=None):
+                    self.options = options or {}
+                    self.application = app
+                    super().__init__()
+
+                def load_config(self):
+                    for key, value in self.options.items():
+                        self.cfg.set(key, value)
+
+                def load(self):
+                    return self.application
+
+            options = {"bind": "0.0.0.0:5000", "workers": 2}
+            logging.info("🌍 Using Gunicorn WSGI server on Linux/macOS...")
+            FlaskApp(app, options).run()
+
+    except Exception as e:
+        logging.error(f"❌ Error starting Flask: {e}")
 
 if __name__ == "__main__":
-    import nest_asyncio
-    nest_asyncio.apply()  # Allows async functions to run in Jupyter or nested loops
+    import threading
+    import asyncio
 
-    asyncio.run(main())  # Run both Flask and Telegram Bot
-    
+    logging.info("🚀 Starting Flask Webhook & Telegram Bot...")
 
+    # ✅ Start Flask in a separate thread
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # ✅ Run Telegram bot inside the existing event loop
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_telegram_bot())  # ✅ Run Telegram bot properly
+
+    loop.run_forever()  # ✅ Keeps the event loop running without crashes

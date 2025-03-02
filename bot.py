@@ -25,7 +25,7 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
-BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY").strip() 
+BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
 bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
 # ✅ Ensure the private key exists before using it
 if not BOT_WALLET_PRIVATE_KEY:

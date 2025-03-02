@@ -25,27 +25,16 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
-BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
-
+BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY").strip() 
+bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
 # ✅ Ensure the private key exists before using it
 if not BOT_WALLET_PRIVATE_KEY:
     logging.error("🚨 BOT_WALLET_PRIVATE_KEY is missing! Check Railway environment variables.")
     raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing! Set it in Railway.")
 
-# Strip any extra spaces or newlines
-BOT_WALLET_PRIVATE_KEY = BOT_WALLET_PRIVATE_KEY.strip()
-
+logging.info(f"🔑 BOT_WALLET_PRIVATE_KEY Loaded: {BOT_WALLET_PRIVATE_KEY[:5]}... (truncated for security)")
 # Output the private key
 print(f"Bot Wallet Private Key: {BOT_WALLET_PRIVATE_KEY}")
-print(f"Length of Private Key: {len(BOT_WALLET_PRIVATE_KEY)}")
-
-# Validate the private key
-try:
-    # Attempt to decode the private key
-    decoded_bytes = base58.b58decode(BOT_WALLET_PRIVATE_KEY)
-    print("✅ Private key is valid Base58.")
-except Exception as e:
-    print(f"❌ Private key is invalid: {e}")
 
 user_last_withdrawal = {}
 

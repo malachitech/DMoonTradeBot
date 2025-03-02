@@ -25,8 +25,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
-
-bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
+# bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
 
 app = Flask(__name__)
 
@@ -165,7 +164,7 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
             return
 
         # Check bot wallet balance
-        bot_balance = await get_sol_balance(str(bot_wallet.pubkey()))
+        bot_balance = await get_sol_balance(str(BOT_WALLET_PRIVATE_KEY.pubkey()))
         if amount > bot_balance:
             await update.message.reply_text(f"Insufficient bot balance. Available: {bot_balance:.4f} SOL")
             return
@@ -173,14 +172,14 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
         # Construct transaction
         transaction = Transaction()
         params = TransferParams(
-            from_pubkey=bot_wallet.pubkey(),
+            from_pubkey=BOT_WALLET_PRIVATE_KEY.pubkey(),
             to_pubkey=recipient_pubkey,
             lamports=int(amount * 1e9),
         )
         transaction.add(transfer(params))
 
         # Send and confirm transaction
-        response = await solana_client.send_transaction(transaction, bot_wallet)
+        response = await solana_client.send_transaction(transaction, BOT_WALLET_PRIVATE_KEY)
         await update.message.reply_text(f"✅ Successfully sent {amount} SOL to {recipient}\nTransaction: {response}")
 
     except Exception as e:
@@ -191,7 +190,7 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
 async def monitor_bot_wallet():
     async with AsyncClient(SOLANA_RPC_URL) as client:
         sub_id = await client.websocket_subscribe(
-            f"accountSubscribe {bot_wallet.pubkey()} commitment=finalized"
+            f"accountSubscribe {BOT_WALLET_PRIVATE_KEY.pubkey()} commitment=finalized"
         )
         async for msg in client.websocket_recv():
             print("🔔 New deposit detected:", msg)

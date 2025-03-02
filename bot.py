@@ -4,7 +4,6 @@ import asyncio
 import requests
 import threading
 import base64
-import base58
 import time
 import nest_asyncio
 import platform
@@ -27,10 +26,8 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
-private_key = base58.b58encode(BOT_WALLET_PRIVATE_KEY).decode("utf-8")
 
-
-bot_wallet = private_key
+bot_wallet = BOT_WALLET_PRIVATE_KEY
 
 user_last_withdrawal = {}
 
@@ -50,7 +47,6 @@ logging.info(f"🔑 BOT_WALLET_PRIVATE_KEY Loaded: {BOT_WALLET_PRIVATE_KEY[:5]}.
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# Debugging: Print environment variables
 
 # ✅ Flask Webhook to Handle Solana Deposits
 @app.route("/phantom_webhook", methods=["POST"])

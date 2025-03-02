@@ -21,7 +21,7 @@ from flask import Flask, request, jsonify
 
 
 # Load environment variables
-# load_dotenv()
+load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET")
@@ -46,6 +46,11 @@ logging.info(f"🔑 BOT_WALLET_PRIVATE_KEY Loaded: {BOT_WALLET_PRIVATE_KEY[:5]}.
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Debugging: Print environment variables
+print(f"TOKEN: {TOKEN}")
+print(f"SOLANA_RPC_URL: {SOLANA_RPC_URL}")
+print(f"ADMIN_WALLET: {ADMIN_WALLET}")
+print(f"BOT_WALLET_PRIVATE_KEY: {BOT_WALLET_PRIVATE_KEY}")
 
 # ✅ Flask Webhook to Handle Solana Deposits
 @app.route("/phantom_webhook", methods=["POST"])

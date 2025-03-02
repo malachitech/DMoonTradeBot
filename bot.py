@@ -38,8 +38,9 @@ user_active_trades = {}
 
 # ✅ Ensure the private key exists before using it
 if not BOT_WALLET_PRIVATE_KEY:
-    raise ValueError("🚨 Error: BOT_WALLET_PRIVATE_KEY is missing in environment variables!")
-
+    logging.error("🚨 BOT_WALLET_PRIVATE_KEY is missing! Check your Railway environment variables.")
+    raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing!")
+logging.info(f"🔑 Loaded BOT_WALLET_PRIVATE_KEY: {BOT_WALLET_PRIVATE_KEY[:5]}... (truncated for security)")
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)

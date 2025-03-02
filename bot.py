@@ -5,7 +5,6 @@ import requests
 import threading
 import base64
 import time
-user_last_withdrawal = {}
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
@@ -27,6 +26,9 @@ ADMIN_WALLET = os.getenv("ADMIN_WALLET")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
 # bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
 
+user_last_withdrawal = {}
+
+
 app = Flask(__name__)
 
 # Initialize Solana client
@@ -35,6 +37,17 @@ user_wallets = {}
 user_sell_targets = {}
 user_active_trades = {}
 
+
+async def start(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    if user_id not in user_wallets:
+        keypair = Keypair()
+        address = str(keypair.pubkey())
+        balance = await get_sol_balance(address)
+        user_wallets[user_id] = {"keypair": keypair, "address": address, "balance": balance}
+        await update.message.reply_text("Welcome! Your wallet has been created.")
+    else:
+        await update.message.reply_text("Welcome back! Your wallet is already set up.")
 
 
 # ✅ Proper Phantom Webhook to Verify Solana Transactions
@@ -92,16 +105,6 @@ async def get_sol_balance(wallet_address):
 
 
 
-async def start(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in user_wallets:
-        keypair = Keypair()
-        address = str(keypair.pubkey())
-        balance = await get_sol_balance(address)
-        user_wallets[user_id] = {"keypair": keypair, "address": address, "balance": balance}
-        await update.message.reply_text("Welcome! Your wallet has been created.")
-    else:
-        await update.message.reply_text("Welcome back! Your wallet is already set up.")
 
 async def wallet_info(query):
     user_id = query.from_user.id

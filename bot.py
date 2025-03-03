@@ -5,7 +5,9 @@ import requests
 import threading
 import base64
 import time
+import nest_asyncio
 import platform
+nest_asyncio.apply()
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
@@ -68,6 +70,19 @@ def phantom_webhook():
         return jsonify({"status": "failed"}), 400
 
 
+
+# Get SOL balance
+async def get_sol_balance(wallet_address):
+    try:
+        pubkey = Pubkey.from_string(wallet_address)
+        response = await solana_client.get_balance(pubkey)
+        if isinstance(response, GetBalanceResp):
+            return response.value / 1e9
+    except Exception as e:
+        logging.error(f"Error fetching balance: {e}")
+    return 0
+
+
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
 
@@ -110,30 +125,6 @@ async def start(update: Update, context: CallbackContext):
 # Generate a new wallet
 def generate_wallet():
     return Keypair()
-
-# Get SOL balance
-async def get_sol_balance(wallet_address):
-    try:
-        pubkey = Pubkey.from_string(wallet_address)
-        response = await solana_client.get_balance(pubkey)
-        if isinstance(response, GetBalanceResp):
-            return response.value / 1e9
-    except Exception as e:
-        logging.error(f"Error fetching balance: {e}")
-    return 0
-
-# async def get_sol_balance(wallet_address):
-#     try:
-#         pubkey = Pubkey.from_string(wallet_address)
-#         async with AsyncClient(SOLANA_RPC_URL) as client:  # Use a fresh client each time
-#             response = await client.get_balance(pubkey)
-#             if isinstance(response, GetBalanceResp):
-#                 return response.value / 1e9
-#         return 0
-#     except Exception as e:
-#         logging.error(f"Error fetching balance: {e}")
-#         return 0
-
 
 async def wallet_info(query):
     user_id = query.from_user.id
@@ -309,20 +300,16 @@ async def run_telegram_bot():
     bot.add_handler(CallbackQueryHandler(handle_button_click))
 
     logging.info("🤖 Telegram Bot is Running...")
-    await bot.run_polling()
+
     # ✅ Fix for "event loop already running" error
     try:
         await bot.initialize()
-        await bot.start_polling()
-        await bot.updater.start_polling()  # Only if using Updater
-        while True:
-            await asyncio.sleep(3600)  # Keep the bot alive
-    except (KeyboardInterrupt, SystemExit):
+        await bot.run_polling()
+        await asyncio.Event().wait()  # Keep the bot alive indefinitely
+    except asyncio.CancelledError:
         await bot.stop()
-        logging.info("🤖 Telegram Bot Stopped Gracefully")
-
-
-    
+        logging.info("🤖 Telegram Bot Stopped")
+        
 # ✅ Prevent Railway from Stopping the Bot
 @app.route("/keep-alive", methods=["GET"])
 def keep_alive():
@@ -381,19 +368,3 @@ if __name__ == "__main__":
 
     # Run the Telegram bot in the main thread
     asyncio.run(run_telegram_bot())
-
-
-# if __name__ == "__main__":
-#     import threading
-#     import asyncio
-
-#     logging.info("🚀 Starting Flask Webhook & Telegram Bot...")
-
-#     # ✅ Start Flask in a separate thread
-#     threading.Thread(target=run_flask, daemon=True).start()
-
-#     # ✅ Run Telegram bot inside the existing event loop
-#     loop = asyncio.get_event_loop()
-#     loop.create_task(run_telegram_bot())  # ✅ Run Telegram bot properly
-
-#     loop.run_forever()  # ✅ Keeps the event loop running without crashes

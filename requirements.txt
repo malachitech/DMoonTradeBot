@@ -19,3 +19,6 @@ asyncio
 gunicorn
 base58
 waitress
+cryptography
+filelock
+datetime

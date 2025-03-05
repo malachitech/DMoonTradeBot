@@ -17,9 +17,10 @@ solana
 asyncio
 base58
 cryptography
-filelock
 datetime
 gunicorn==23.0.0  
 uvicorn==0.29.0  
 waitress==3.0.0  
 flask==3.0.3
+httpx==0.27.0
+filelock==3.13.1

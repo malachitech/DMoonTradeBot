@@ -42,7 +42,7 @@ WALLETS_FILE = "bot-wallet.json"
 lock = FileLock(WALLETS_FILE + ".lock")
 JUPITER_API = os.getenv("JUPITER_API")
 DEX_PROGRAM_ID = os.getenv("BOT_WALLET_PRIVATE_KEY")
-ENCRYPTION_KEY = "UnRMYBWGXsEFWeOFlilkvxPP1Q4BTSEi4gJOeSo9I6o="
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 cipher = Fernet(ENCRYPTION_KEY.encode())
 
 # File storage
@@ -524,7 +524,7 @@ async def monitor_bot_wallet():
                 while True:  
                     message = await ws.receive_text()
                     f"accountSubscribe {bot_wallet.pubkey()} commitment=finalized"
-                    print("🔔 New deposit detected:", msg)
+                    print("🔔 New deposit detected:", message)
         except Exception as e:  
             # Log errors (e.g., Sentry, Cloudwatch)  
             logger.error(f"WebSocket error: {e}")
@@ -707,12 +707,13 @@ def run_flask():
         # Local development with Waitress  
         serve(app, host='0.0.0.0', port=5000)
 
-
-# ✅ Telegram Bot Function
 async def run_telegram_bot():
+    # Initialize fresh event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     bot = Application.builder().token(TOKEN).build()
-
-    # ✅ Register all command handlers
+     # ✅ Register all command handlers
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("withdraw", withdraw_phantom))
     bot.add_handler(CommandHandler("set_target", set_sell_target))
@@ -723,17 +724,14 @@ async def run_telegram_bot():
 
  # ✅ Register callback handler for button clicks
     bot.add_handler(CallbackQueryHandler(handle_button_click))
-
-    logging.info("🤖 Telegram Bot is Running...")
-
-    # ✅ Fix for "event loop already running" error
+    
     try:
         await bot.initialize()
-        await bot.run_polling()
-        await asyncio.Event().wait()  # Keep the bot alive indefinitely
-    except asyncio.CancelledError:
+        await bot.start()
+        while True:
+            await asyncio.sleep(3600)  # Keep alive
+    finally:
         await bot.stop()
-        logging.info("🤖 Telegram Bot Stopped")
 
 
 def run_bot_async_wrapper():  
@@ -741,8 +739,8 @@ def run_bot_async_wrapper():
 
 if __name__ == '__main__':  
     # Start Flask and Bot as separate processes  
-    flask_process = Process(target=run_flask())  
-    bot_process = Process(target=run_bot_async_wrapper()())  
+    flask_process = Process(target=run_flask)  
+    bot_process = Process(target=run_bot_async_wrapper)  
     flask_process.start()  
     bot_process.start()  
     flask_process.join()  

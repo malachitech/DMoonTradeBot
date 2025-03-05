@@ -35,9 +35,8 @@ TOKEN_DECIMALS = int(os.getenv("TOKEN_DECIMALS", 6))
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
-if not BOT_WALLET_PRIVATE_KEY:
-    raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing! Set it in Railway.")
-bot_wallet = Keypair.pubkey().to_string(BOT_WALLET_PRIVATE_KEY)
+
+
 
 # File to store permanent wallets
 WALLETS_FILE = "bot-wallet.json"
@@ -46,6 +45,12 @@ JUPITER_API = os.getenv("JUPITER_API")
 DEX_PROGRAM_ID = os.getenv("BOT_WALLET_PRIVATE_KEY")
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 cipher = Fernet(ENCRYPTION_KEY.encode())
+
+# ✅ Convert array to bytes and load Keypair
+bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
+
+# ✅ Get the public key as a Base58 string
+bot_wallet_pubkey = str(bot_wallet.pubkey())  # ✅ Convert to Base58 string
 
 # File storage
 WALLETS_FILE = "user_wallets.json"
@@ -73,6 +78,11 @@ if missing:
 # Validate Jupiter URL format
 if not JUPITER_API.startswith(("http://", "https://")):
     raise ValueError("JUPITER_API must include http/https scheme")
+
+
+print(f"Type of bot_wallet: {type(bot_wallet)}")  # Should be <class 'solders.keypair.Keypair'>
+print(f"Type of bot_wallet_pubkey: {type(bot_wallet.pubkey())}")  # Should be <class 'solders.pubkey.Pubkey'>
+print(f"✅ Bot Wallet Public Key: {bot_wallet_pubkey}")
 
 # Configure logging
 logging.basicConfig(
@@ -321,51 +331,61 @@ async def get_token_price(token_address: str):
         return 0
 
 async def start(update: Update, context: CallbackContext):
-    """Wallet creation with atomic safety"""
+    """Handles wallet creation (only once) with atomic safety, encryption, and UI buttons."""
     try:
         user_id = str(update.effective_user.id)
-        
-        # Load fresh data
+        logging.info(f"✅ /start command received from user {user_id}")
+
+        # Ensure the latest wallet data is loaded
         load_wallets()
-        
+
         if user_id in user_wallets:
-            # Never overwrite existing wallet
+            # ✅ If the user has a wallet, do NOT replace or modify it
             wallet = user_wallets[user_id]
             await update_wallet_balances(user_id)
+
             message = (
-                f"👋 Welcome back!\n"
-                f"📌 Permanent Address: `{wallet['address']}`\n"
-                f"💰 SOL Balance: {wallet['sol_balance']:.4f}\n"
-                f"🎯 Token Balance: {wallet['token_balance']:.2f}"
+                f"👋 **Welcome back!**\n"
+                f"📌 **Your Permanent Wallet Address:** `{wallet['address']}`\n"
+                f"💰 **SOL Balance:** {wallet['sol_balance']:.4f} SOL\n"
+                f"🎯 **Token Balance:** {wallet['token_balance']:.2f} Tokens\n\n"
+                "🔒 **Your wallet is permanently stored and cannot be replaced.**"
             )
+
         else:
-            # Create new wallet atomically
+            # ✅ Create a new wallet only if the user does NOT have one
             keypair = Keypair()
-            encrypted_key = cipher.encrypt(keypair.to_base58_string().encode()).decode()
-            
+            encrypted_key = cipher.encrypt(keypair.to_bytes()).decode()
+
             new_wallet = {
-                "address": str(keypair.pubkey()),
-                "encrypted_key": encrypted_key,
+                "address": str(keypair.pubkey()),  # Store as string
+                "encrypted_key": encrypted_key,   # Secure private key storage
                 "sol_balance": 0.0,
                 "token_balance": 0.0,
                 "transactions": []
             }
-            
-            # Atomic update
+
+            # ✅ Atomic update: Prevent overwriting existing wallets
             with lock:
                 load_wallets()
-                if user_id not in user_wallets:
+                if user_id not in user_wallets:  # Double-check to prevent overwriting
                     user_wallets[user_id] = new_wallet
                     save_wallets()
-                else:  # Handle concurrent creation
+                    message = (
+                        "✅ **Immutable Wallet Created**\n"
+                        f"📌 **Your Permanent Address:** `{new_wallet['address']}`\n"
+                        "🔐 **Your private key is encrypted & stored securely.**\n\n"
+                        "⚠️ **This wallet is PERMANENT and cannot be changed.**"
+                    )
+                else:
+                    # Edge case: If another process created a wallet simultaneously
                     wallet = user_wallets[user_id]
-                    
-            message = (
-                "✅ **Immutable Wallet Created**\n"
-                f"📌 Permanent Address: `{new_wallet['address']}`\n"
-                "🔐 Private key encrypted & stored securely"
-            )
+                    message = (
+                        "⚠️ **Wallet creation interrupted, but your wallet is safe!**\n"
+                        f"📌 **Your Permanent Address:** `{wallet['address']}`"
+                    )
 
+        # ✅ Inline Keyboard Buttons for quick actions
         keyboard = [
             [InlineKeyboardButton("💼 Wallet Info", callback_data="wallet"),
              InlineKeyboardButton("💰 Deposit", callback_data="deposit")],
@@ -376,16 +396,17 @@ async def start(update: Update, context: CallbackContext):
             [InlineKeyboardButton("🔍 Solscan", callback_data="solscan"),
              InlineKeyboardButton("❓ Help", callback_data="help")]
         ]
-        
+
         await update.message.reply_text(
             message,
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        
+
     except Exception as e:
-        logger.error(f"Start error: {str(e)}")
-        await update.message.reply_text("🚨 System error - contact support")
+        logging.error(f"🚨 Start error: {str(e)}")
+        await update.message.reply_text("🚨 **System error - contact support.**")
+
 
 async def handle_sell_now(update: Update, context: CallbackContext):
     """Instant sell with price validation"""
@@ -730,13 +751,13 @@ async def run_telegram_bot():
     except RuntimeError as e:
         logging.error(f"⚠️ Event loop error: {e}")
 
-
-def run_bot_async_wrapper():  
-    asyncio.run(run_telegram_bot())
+  
+   
 
 if __name__ == "__main__":
     import nest_asyncio
     nest_asyncio.apply()  # ✅ Fixes "event loop already running" issue
+    # asyncio.run(run_telegram_bot())
 
     loop = asyncio.get_event_loop()
     loop.create_task(run_telegram_bot())  # ✅ Run bot without blocking event loop

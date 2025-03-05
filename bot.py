@@ -708,12 +708,9 @@ def run_flask():
         serve(app, host='0.0.0.0', port=5000)
 
 async def run_telegram_bot():
-    # Initialize fresh event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     bot = Application.builder().token(TOKEN).build()
-     # ✅ Register all command handlers
+
+    # ✅ Register all command handlers
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("withdraw", withdraw_phantom))
     bot.add_handler(CommandHandler("set_target", set_sell_target))
@@ -722,24 +719,23 @@ async def run_telegram_bot():
     bot.add_handler(CommandHandler("buy_now", buy_now))
     bot.add_handler(CommandHandler("help", help_command))
     bot.add_handler(CallbackQueryHandler(handle_button_click))
-    
+
+    logging.info("🤖 Telegram Bot is Running and Polling for Updates...")
+
+    # ✅ Check if the event loop is already running
     try:
-        await bot.initialize()
-        await bot.start()
-        while True:
-            await asyncio.sleep(3600)  # Keep alive
-    finally:
-        await bot.stop()
+        await bot.run_polling(allowed_updates=Update.ALL_TYPES)
+    except RuntimeError as e:
+        logging.error(f"⚠️ Event loop error: {e}")
 
 
 def run_bot_async_wrapper():  
     asyncio.run(run_telegram_bot())
 
-if __name__ == '__main__':  
-    # Start Flask and Bot as separate processes  
-    flask_process = Process(target=run_flask)  
-    bot_process = Process(target=run_bot_async_wrapper)  
-    flask_process.start()  
-    bot_process.start()  
-    flask_process.join()  
-    bot_process.join()  
+if __name__ == "__main__":
+    import nest_asyncio
+    nest_asyncio.apply()  # ✅ Fixes "event loop already running" issue
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_telegram_bot())  # ✅ Run bot without blocking event loop
+    loop.run_forever()  # ✅ Keeps everything running

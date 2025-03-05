@@ -734,12 +734,15 @@ async def run_telegram_bot():
     except asyncio.CancelledError:
         await bot.stop()
         logging.info("🤖 Telegram Bot Stopped")
-        
+
+
+def run_bot_async_wrapper():  
+    asyncio.run(run_telegram_bot())
 
 if __name__ == '__main__':  
     # Start Flask and Bot as separate processes  
-    flask_process = Process(target=run_flask)  
-    bot_process = Process(target=run_telegram_bot)  
+    flask_process = Process(target=run_flask())  
+    bot_process = Process(target=run_bot_async_wrapper()())  
     flask_process.start()  
     bot_process.start()  
     flask_process.join()  

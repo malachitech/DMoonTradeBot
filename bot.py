@@ -35,7 +35,9 @@ TOKEN_DECIMALS = int(os.getenv("TOKEN_DECIMALS", 6))
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL")
 ADMIN_WALLET = os.getenv("ADMIN_WALLET_ADDRESS")
 BOT_WALLET_PRIVATE_KEY = os.getenv("BOT_WALLET_PRIVATE_KEY")
-bot_wallet = Keypair.from_base58_string(BOT_WALLET_PRIVATE_KEY)
+if not BOT_WALLET_PRIVATE_KEY:
+    raise ValueError("🚨 BOT_WALLET_PRIVATE_KEY is missing! Set it in Railway.")
+bot_wallet = Keypair.pubkey().to_string(BOT_WALLET_PRIVATE_KEY)
 
 # File to store permanent wallets
 WALLETS_FILE = "bot-wallet.json"

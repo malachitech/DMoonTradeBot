@@ -5,7 +5,7 @@ import requests
 import threading
 import base64
 import time
-import nest_asyncio
+# import nest_asyncio
 import platform
 import json
 import datetime
@@ -13,7 +13,7 @@ from multiprocessing import Process
 import sys  
 import httpx
 from waitress import serve
-nest_asyncio.apply()
+# nest_asyncio.apply()
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
@@ -721,8 +721,6 @@ async def run_telegram_bot():
     bot.add_handler(CommandHandler("sell_now", sell_now))
     bot.add_handler(CommandHandler("buy_now", buy_now))
     bot.add_handler(CommandHandler("help", help_command))
-
- # ✅ Register callback handler for button clicks
     bot.add_handler(CallbackQueryHandler(handle_button_click))
     
     try:

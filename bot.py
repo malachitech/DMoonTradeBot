@@ -5,7 +5,7 @@ import requests
 import threading
 import base64
 import time
-# import nest_asyncio
+import nest_asyncio
 import platform
 import json
 import datetime
@@ -13,7 +13,7 @@ from multiprocessing import Process
 import sys  
 import httpx
 from waitress import serve
-# nest_asyncio.apply()
+nest_asyncio.apply()
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler

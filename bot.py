@@ -9,6 +9,10 @@ import nest_asyncio
 import platform
 import json
 import datetime
+from multiprocessing import Process  
+import sys  
+import httpx
+from waitress import serve
 nest_asyncio.apply()
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -38,11 +42,8 @@ WALLETS_FILE = "bot-wallet.json"
 lock = FileLock(WALLETS_FILE + ".lock")
 JUPITER_API = os.getenv("JUPITER_API")
 DEX_PROGRAM_ID = os.getenv("BOT_WALLET_PRIVATE_KEY")
-
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")  # Generate once with Fernet.generate_key()
-# Initialize encryption
+ENCRYPTION_KEY = "UnRMYBWGXsEFWeOFlilkvxPP1Q4BTSEi4gJOeSo9I6o="
 cipher = Fernet(ENCRYPTION_KEY.encode())
-
 
 # File storage
 WALLETS_FILE = "user_wallets.json"
@@ -54,12 +55,22 @@ user_active_trades = {}
 # Initialize Solana client
 solana_client = AsyncClient(SOLANA_RPC_URL)
 
+required_env_vars = [
+    "TELEGRAM_BOT_TOKEN",
+    "SOLANA_RPC_URL",
+    "BOT_WALLET_PRIVATE_KEY",
+    "ENCRYPTION_KEY",
+    "JUPITER_API",
+    "TOKEN_MINT"
+]
 
-# headers = {}
-# if JUPITER_API:
-#     headers["Authorization"] = f"Bearer {JUPITER_API}"
+missing = [var for var in required_env_vars if not os.getenv(var)]
+if missing:
+    raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
-# response = requests.get(JUPITER_API, params=params, headers=headers)
+# Validate Jupiter URL format
+if not JUPITER_API.startswith(("http://", "https://")):
+    raise ValueError("JUPITER_API must include http/https scheme")
 
 # Configure logging
 logging.basicConfig(
@@ -255,22 +266,31 @@ def phantom_webhook():
         return jsonify({"status": "error"}), 500
 
 
-# --- Background Tasks ---
+
 
 async def price_monitor():
-    """Monitor prices and execute auto-sells"""
+    """Monitor prices with enhanced error handling"""
     while True:
         try:
-            # Get current price
+            # Get current price with validation
             params = {
                 "inputMint": TOKEN_MINT,
                 "outputMint": "So11111111111111111111111111111111111111112",
                 "amount": 1 * 10**TOKEN_DECIMALS
             }
-            response = requests.get(JUPITER_API, params=params)
-            current_price = float(response.json()["outAmount"]) / 1e9
             
-            # Check targets
+            response = requests.get(
+                JUPITER_API,
+                params=params,
+                timeout=10,
+                headers={"Content-Type": "application/json"}
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            current_price = float(data["outAmount"]) / 1e9
+            
+            # Process price updates
             for user_id, target in user_sell_targets.items():
                 entry_price = user_entry_prices.get(user_id, current_price)
                 if current_price >= entry_price * target:
@@ -280,8 +300,7 @@ async def price_monitor():
             
         except Exception as e:
             logger.error(f"Price monitor error: {str(e)}")
-            await asyncio.sleep(300)
-
+            await asyncio.sleep(300)  # Backoff on errors
 
 
         
@@ -439,13 +458,6 @@ async def confirm_reset_wallet(query):
     await query.message.reply_text("Are you sure you want to reset your wallet? This action cannot be undone.", reply_markup=reply_markup)
 
 
-# async def monitor_wallet(wallet_address):
-#     async with AsyncClient(SOLANA_RPC_URL) as client:
-#         sub_id = await client.websocket_subscribe(
-#             f"accountSubscribe {wallet_address} commitment=finalized"
-#         )
-#         async for msg in client.websocket_recv():
-#             print("🔔 New transaction detected:", msg)
 async def withdraw_phantom(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     now = time.time()
@@ -504,14 +516,18 @@ async def withdraw_phantom(update: Update, context: CallbackContext):
         await update.message.reply_text(f"⚠️ Error: {e}")
 
 
-async def monitor_bot_wallet():
-    async with AsyncClient(SOLANA_RPC_URL) as client:
-        sub_id = await client.websocket_subscribe(
-            f"accountSubscribe {bot_wallet.pubkey()} commitment=finalized"
-        )
-        async for msg in client.websocket_recv():
-            print("🔔 New deposit detected:", msg)
 
+async def monitor_bot_wallet():
+    async with httpx.AsyncClient() as client:  
+        try:  
+            async with client.websocket_connect("wss://api.example.com/ws") as ws:  
+                while True:  
+                    message = await ws.receive_text()
+                    f"accountSubscribe {bot_wallet.pubkey()} commitment=finalized"
+                    print("🔔 New deposit detected:", msg)
+        except Exception as e:  
+            # Log errors (e.g., Sentry, Cloudwatch)  
+            logger.error(f"WebSocket error: {e}")
 
 
 async def set_sell_target(update: Update, context: CallbackContext):
@@ -675,6 +691,23 @@ async def check_transaction(transaction_id):
         return bool(response and response.get("result"))
 
 
+def run_flask():  
+    # Production (Railway) uses Gunicorn; locally use Waitress  
+    if 'gunicorn' in sys.argv:  
+        from gunicorn.app.base import BaseApplication  
+        class FlaskApp(BaseApplication):  
+            def __init__(self, app, options=None):  
+                self.app = app  
+                self.options = options or {}  
+                super().__init__()  
+            def load(self):  
+                return self.app  
+        FlaskApp(app, {'bind': '0.0.0.0:${PORT:-5000}'}).run()  
+    else:  
+        # Local development with Waitress  
+        serve(app, host='0.0.0.0', port=5000)
+
+
 # ✅ Telegram Bot Function
 async def run_telegram_bot():
     bot = Application.builder().token(TOKEN).build()
@@ -703,63 +736,11 @@ async def run_telegram_bot():
         logging.info("🤖 Telegram Bot Stopped")
         
 
-def run_flask():
-    logging.info("🚀 Running Flask in Production Mode...")
-
-    try:
-        if platform.system() == "Windows":  
-            # ✅ Use Waitress on Windows
-            from waitress import serve
-            logging.info("🌍 Using Waitress WSGI server on Windows...")
-            serve(app, host="0.0.0.0", port=5000)
-
-        else:  
-            # ✅ Use Gunicorn on Linux/macOS
-            from gunicorn.app.base import BaseApplication
-
-            class FlaskApp(BaseApplication):
-                def __init__(self, app, options=None):
-                    self.options = options or {}
-                    self.application = app
-                    super().__init__()
-
-                def load_config(self):
-                    for key, value in self.options.items():
-                        self.cfg.set(key, value)
-
-                def load(self):
-                    return self.application
-
-            options = {"bind": "0.0.0.0:5000", "workers": 2}
-            logging.info("🌍 Using Gunicorn WSGI server on Linux/macOS...")
-            FlaskApp(app, options).run()
-
-    except Exception as e:
-        logging.error(f"❌ Error starting Flask: {e}")
-
-
-if __name__ == "__main__":
-    # Load wallets with validation
-    load_wallets()
-    
-    # Start services
-    asyncio.create_task(price_monitor())
-    
-    # Initialize Telegram bot
-    application = Application.builder().token(TOKEN).build()
-    
-    # Register handlers with rate limiting
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("sell_now", handle_sell_now))
-    # ... other handlers ...
-    
-    # Start web server
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host="0.0.0.0", port=5000),
-        daemon=True
-    )
-    flask_thread.start()
-    
-    # Run bot
-    application.run_polling()
-
+if __name__ == '__main__':  
+    # Start Flask and Bot as separate processes  
+    flask_process = Process(target=run_flask)  
+    bot_process = Process(target=run_telegram_bot)  
+    flask_process.start()  
+    bot_process.start()  
+    flask_process.join()  
+    bot_process.join()  

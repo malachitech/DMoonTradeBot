@@ -14,11 +14,12 @@ urllib3==2.3.0
 nest_asyncio==1.6.0
 solders
 solana
-flask
 asyncio
-gunicorn
 base58
-waitress
 cryptography
 filelock
 datetime
+gunicorn==23.0.0  
+uvicorn==0.29.0  
+waitress==3.0.0  
+flask==3.0.3

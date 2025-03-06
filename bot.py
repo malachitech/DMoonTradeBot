@@ -120,6 +120,32 @@ rate_limiter = RateLimiter(max_calls=5, period=60)
 
 # --- Core Functions ---
 
+# def load_wallets():
+#     """Load and upgrade wallet format if needed"""
+#     global user_wallets
+#     try:
+#         with lock:
+#             if os.path.exists(WALLETS_FILE):
+#                 with open(WALLETS_FILE, "rb") as f:
+#                     encrypted = f.read()
+#                     decrypted = cipher.decrypt(encrypted)
+#                     raw_wallets = json.loads(decrypted)
+                    
+#                     # Validate wallet structure
+#                     valid_wallets = {}
+#                     for user_id, wallet in raw_wallets.items():
+#                         if all(k in wallet for k in ["address", "encrypted_key"]):
+#                             valid_wallets[user_id] = {
+#                                 "address": wallet["address"],
+#                                 "encrypted_key": wallet["encrypted_key"],
+#                                 "sol_balance": wallet.get("sol_balance", 0.0),
+#                                 "token_balance": wallet.get("token_balance", 0.0),
+#                                 "transactions": wallet.get("transactions", [])
+#                             }
+#                     user_wallets = valid_wallets
+#     except Exception as e:
+#         logging.error(f"Wallet load failed: {str(e)}")
+
 def load_wallets():
     """Load and upgrade wallet format if needed"""
     global user_wallets
@@ -129,6 +155,10 @@ def load_wallets():
                 with open(WALLETS_FILE, "rb") as f:
                     encrypted = f.read()
                     decrypted = cipher.decrypt(encrypted)
+                    
+                    # DEBUG: Print decrypted data to check correctness
+                    logging.info(f"Decrypted wallet data: {decrypted.decode()}")
+
                     raw_wallets = json.loads(decrypted)
                     
                     # Validate wallet structure
@@ -142,9 +172,16 @@ def load_wallets():
                                 "token_balance": wallet.get("token_balance", 0.0),
                                 "transactions": wallet.get("transactions", [])
                             }
+                        else:
+                            logging.warning(f"Wallet for {user_id} is missing required fields and was skipped.")
+                    
                     user_wallets = valid_wallets
+
+                    # DEBUG: Print loaded wallets
+                    logging.info(f"Loaded wallets: {user_wallets}")
     except Exception as e:
         logging.error(f"Wallet load failed: {str(e)}")
+
 
 def save_wallets():
     try:
@@ -172,21 +209,20 @@ async def get_sol_balance(wallet_address: str) -> float:
     return 0.0
 
 async def get_token_balance(wallet_address: str) -> float:
-    """Get token balance with retries"""
-    for _ in range(3):
-        try:
-            resp = await solana_client.get_token_accounts_by_owner(
-                Pubkey.from_string(wallet_address),
-                mint=Pubkey.from_string(TOKEN_MINT)
-            )
-            return sum(
-                t.account.data.parsed["info"]["tokenAmount"]["uiAmount"] 
-                for t in resp.value
-            )
-        except Exception as e:
-            logger.error(f"Token balance error: {str(e)}")
-            await asyncio.sleep(1)
+    try:
+        wallet_pubkey = Pubkey.from_string(wallet_address)
+
+        response = await solana_client.get_token_accounts_by_owner(wallet_pubkey, encoding="jsonParsed")
+
+        if "result" in response and "value" in response["result"]:
+            accounts = response["result"]["value"]
+            if accounts:
+                return accounts[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+        
+    except Exception as e:
+        logging.error(f"Token balance error: {str(e)}")
     return 0.0
+
 
 async def update_wallet_balances(user_id: str):
     """Update and cache balances"""
@@ -333,6 +369,7 @@ async def get_token_price(token_address: str):
 async def start(update: Update, context: CallbackContext):
     """Handles wallet creation (only once) with atomic safety, encryption, and UI buttons."""
     try:
+        load_wallets()
         user_id = str(update.effective_user.id)
         logging.info(f"✅ /start command received from user {user_id}")
 
@@ -449,23 +486,72 @@ async def handle_sell_now(update: Update, context: CallbackContext):
 
 
 
+# async def wallet_info(query):
+#     user_id = query.from_user.id
+#     if user_id not in user_wallets:
+#         await query.message.reply_text("No wallet found. Use /start to create one.")
+#         return
+    
+#     wallet_data = user_wallets[user_id]
+#     balance = await get_sol_balance(wallet_data["address"])
+#     message = f"\U0001F4B0 **Wallet Info:**\n\n\U0001F538 **Address:** {wallet_data['address']}\n\U0001F538 **Balance:** {balance:.4f} SOL"
+#     await query.message.reply_text(message)
+
+#     token_balance = await get_token_balance(wallet_data["address"], "DezXAZ...")
+#     message = f"...\n\U0001F538 Token Balance: {token_balance:.2f} BONK"
+
+
+# async def wallet_info(query):
+#     """Displays wallet details WITHOUT modifying the wallet or resetting balance."""
+#     user_id = str(query.from_user.id)
+
+#     # ✅ Load the latest wallet data
+#     load_wallets()
+
+#     if user_id not in user_wallets:
+#         await query.message.reply_text("⚠️ No wallet found. Use /start to create one.")
+#         return
+    
+#     wallet_data = user_wallets[user_id]
+#     address = wallet_data["address"]  # ✅ Permanent address
+#     sol_balance = await get_sol_balance(address)  # ✅ Fetch current SOL balance
+#     token_balance = await get_token_balance(address, "DezXAZ...")  # ✅ Fetch BONK balance
+
+#     # ✅ Do NOT modify `user_wallets` (NO resetting)
+#     message = (
+#         f"💼 **Wallet Info**\n\n"
+#         f"📌 **Address:** `{address}`\n"
+#         f"💰 **SOL Balance:** {sol_balance:.4f} SOL\n"
+#         f"🪙 **Token Balance:** {token_balance:.2f} BONK"
+#     )
+
+#     await query.message.reply_text(message, parse_mode="Markdown")
+
 async def wallet_info(query):
-    user_id = query.from_user.id
+    user_id = str(query.from_user.id)  # Ensure user_id is a string
+    
+    # Debugging: Print loaded wallets
+    logging.info(f"Checking wallet for user {user_id}. All wallets: {user_wallets}")
+
     if user_id not in user_wallets:
         await query.message.reply_text("No wallet found. Use /start to create one.")
         return
     
     wallet_data = user_wallets[user_id]
     balance = await get_sol_balance(wallet_data["address"])
-    message = f"\U0001F4B0 **Wallet Info:**\n\n\U0001F538 **Address:** {wallet_data['address']}\n\U0001F538 **Balance:** {balance:.4f} SOL"
+    
+    message = (
+        f"\U0001F4B0 **Wallet Info:**\n\n"
+        f"\U0001F538 **Address:** {wallet_data['address']}\n"
+        f"\U0001F538 **Balance:** {balance:.4f} SOL"
+    )
+    
     await query.message.reply_text(message)
-
-    token_balance = await get_token_balance(wallet_data["address"], "DezXAZ...")
-    message = f"...\n\U0001F538 Token Balance: {token_balance:.2f} BONK"
 
 
 async def deposit_info(query):
-    user_id = query.from_user.id
+    load_wallets()
+    user_id = str(query.from_user.id)
     if user_id not in user_wallets:
         await query.message.reply_text("No wallet found. Use /start to create one.")
         return
@@ -678,7 +764,7 @@ async def handle_button_click(update: Update, context: CallbackContext):
     elif query.data == "reset_wallet":
         await confirm_reset_wallet(query)
     elif query.data == "cancel_reset":
-        await query.message.edit_text("Wallet refresh canceled.")
+        await query.message.reply_text("Wallet refresh canceled.")
     elif query.data == "active_trades":
         await active_trades(update, context)
     elif query.data == "help":
@@ -686,7 +772,7 @@ async def handle_button_click(update: Update, context: CallbackContext):
     elif query.data == "withdraw":
         await query.message.reply_text("Use /withdraw <amount> <recipient_address> to withdraw SOL.")
     elif query.data == "confirm_reset":
-        user_id = query.from_user.id
+        user_id = str(query.from_user.id)
     elif query.data == "view_solscan":
         user_id = query.from_user.id
         if user_id in user_wallets:
@@ -703,9 +789,9 @@ async def handle_button_click(update: Update, context: CallbackContext):
     if user_id in user_wallets:
         balance = await get_sol_balance(user_wallets[user_id]["address"])
         user_wallets[user_id]["balance"] = balance
-        await query.message.edit_text(f"Your wallet has been refreshed.\n\nNew Balance: {balance:.4f} SOL")
+        # await query.message.reply_text(f"Your wallet has been refreshed.\n\nNew Balance: {balance:.4f} SOL")
     else:
-        await query.message.edit_text("No wallet found to refresh.")
+        await query.message.reply_text("No wallet found to refresh.")
     
 # ✅ Check Solana Transaction Validity
 async def check_transaction(transaction_id):

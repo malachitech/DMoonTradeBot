@@ -7,6 +7,13 @@ import sqlite3
 import httpx
 import base64
 import nest_asyncio
+import sys
+import sqlite3
+import time
+import json
+import asyncio
+from collections import deque
+
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -95,13 +102,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-import sqlite3
-import time
-import json
-import asyncio
-from collections import deque
-
-
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -158,7 +158,9 @@ class RateLimiter:
 rate_limiter = RateLimiter(max_calls=5, period=60)
 
 # ✅ Set up the database only once
+
 def setup_database():
+    """Ensures the transactions table is created on startup."""
     conn = sqlite3.connect("trading_bot.db")
     cursor = conn.cursor()
 
@@ -175,28 +177,32 @@ def setup_database():
 
     conn.commit()
     conn.close()
+    logging.info("✅ Database setup complete.")
 
 # ✅ Function to securely log transactions
+
 def log_transaction(user_id, sell_amount, target_price, txid):
-    """Stores trade logs in SQLite3 with error handling."""
+    """Logs transactions securely in SQLite3."""
     try:
         conn = sqlite3.connect("trading_bot.db")
         cursor = conn.cursor()
 
-        # ✅ Insert transaction log
         cursor.execute("""
             INSERT INTO transactions (user_id, amount_sold, target_price, transaction_id)
             VALUES (?, ?, ?, ?)
         """, (user_id, sell_amount, target_price, txid))
 
         conn.commit()
-        logging.info(f"✅ Transaction logged: User {user_id} sold {sell_amount} tokens at {target_price} SOL")
+        logging.info(f"✅ Transaction logged: {sell_amount} tokens sold at {target_price} SOL")
 
     except sqlite3.Error as e:
         logging.error(f"🚨 Database Error: {str(e)}")
-    
+
     finally:
         conn.close()
+
+
+
 
 # ✅ Load wallets securely
 def load_wallets():
@@ -430,20 +436,37 @@ async def price_monitor():
             logger.error(f"Price monitor error: {str(e)}")
             await asyncio.sleep(300)  # Backoff on errors
 
-        
 async def get_token_price(token_address: str):
+    """Fetches the token price from Jupiter API asynchronously."""
     try:
         params = {
             "inputMint": token_address,
             "outputMint": "So11111111111111111111111111111111111111112",
             "amount": 1_000_000  # 1 token assuming 6 decimals
         }
-        
-        response = requests.get(JUPITER_API, params=params)
-        return float(response.json()["outAmount"]) / 1_000_000
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(JUPITER_API, params=params, timeout=10)
+            response.raise_for_status()  # ✅ Raise error if request fails
+
+            return float(response.json()["outAmount"]) / 1_000_000
     except Exception as e:
-        logging.error(f"Price check error: {e}")
-        return 0
+        logging.error(f"🚨 Price check error: {e}")
+        return 0  # ✅ Return 0 instead of crashing
+        
+# async def get_token_price(token_address: str):
+#     try:
+#         params = {
+#             "inputMint": token_address,
+#             "outputMint": "So11111111111111111111111111111111111111112",
+#             "amount": 1_000_000  # 1 token assuming 6 decimals
+#         }
+        
+#         response = requests.get(JUPITER_API, params=params)
+#         return float(response.json()["outAmount"]) / 1_000_000
+#     except Exception as e:
+#         logging.error(f"Price check error: {e}")
+#         return 0
 
 async def start(update: Update, context: CallbackContext):
     """Handles wallet creation (only once) with atomic safety, encryption, and UI buttons."""
@@ -524,31 +547,42 @@ async def start(update: Update, context: CallbackContext):
         await update.message.reply_text("🚨 **System error - contact support.**")
 
 
-
-
-async def wallet_info(query):
-    
-    user_id = str(query.from_user.id)  # Ensure user_id is a string
+async def wallet_info(update: Update, context: CallbackContext):
+    """Show user wallet details."""
+    query = update.callback_query  # ✅ Get the query data
+    user_id = str(query.from_user.id)
     load_wallets()
 
-    # Debugging: Print loaded wallets
-    logging.info(f"Checking wallet for user {user_id}. All wallets: {user_wallets}")
-
-    with lock:
-        if user_id not in user_wallets:
-            await query.message.reply_text("No wallet found. Use /start to create one.")
-            return
+    if user_id not in user_wallets:
+        await query.message.reply_text("❌ No wallet found. Use /start to create one.")
+        return
     
     wallet_data = user_wallets[user_id]
     balance = await get_sol_balance(wallet_data["address"])
-    
+
     message = (
-        f"\U0001F4B0 **Wallet Info:**\n\n"
-        f"\U0001F538 **Address:** {wallet_data['address']}\n"
-        f"\U0001F538 **Balance:** {balance:.4f} SOL"
+        f"💰 **Wallet Info:**\n\n"
+        f"📌 **Address:** {wallet_data['address']}\n"
+        f"🔹 **SOL Balance:** {balance:.4f} SOL"
     )
     
     await query.message.reply_text(message)
+
+def generate_moonpay_link(user_id: str) -> str:
+    """Generates a MoonPay deposit link with the user's wallet address."""
+    load_wallets()
+    
+    if user_id not in user_wallets:
+        return "https://buy.moonpay.com/?apiKey=pk_live_tgPovrzh9urHG1HgjrxWGq5xgSCAAz&showWalletAddressForm=true&currencyCode=sol"
+    
+    wallet_address = user_wallets[user_id]["address"]
+    
+    # ✅ Dynamically create the deposit link
+    moonpay_link = (
+        f"https://buy.moonpay.com/?apiKey=pk_live_tgPovrzh9urHG1HgjrxWGq5xgSCAAz"
+        f"&walletAddress={wallet_address}&showWalletAddressForm=true&currencyCode=sol"
+    )
+    return moonpay_link
 
 
 async def deposit_info(query):
@@ -742,17 +776,28 @@ async def monitor_market():
 TARGET_INPUT = range(1)
 
 async def set_sell_target(update: Update, context: CallbackContext):
-    """Step 1: Ask user for their sell target multiplier."""
+    """Handles sell target setup from both button clicks and commands."""
     
-    user_id = str(update.effective_user.id)
-    load_wallets()
+    # ✅ Support both commands & button clicks
+    query = update.callback_query
+    user_id = str(update.effective_user.id) if update.message else str(query.from_user.id)
 
+    load_wallets()
     if user_id not in user_wallets:
-        await update.message.reply_text("❌ Create wallet first with /start")
+        if query:
+            await query.message.reply_text("❌ No wallet found. Use /start to create one.")
+        else:
+            await update.message.reply_text("❌ No wallet found. Use /start to create one.")
         return ConversationHandler.END
 
-    await update.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
+    # ✅ Reply properly based on how function is called
+    if query:
+        await query.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
+    else:
+        await update.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
+    
     return TARGET_INPUT  # Move to next step in conversation
+
 
 async def receive_target_input(update: Update, context: CallbackContext):
     """Step 2: Store user input and set sell target."""
@@ -786,20 +831,19 @@ conv_handler = ConversationHandler(
 )
 
 
-async def buy_now(update: Update, context: CallbackContext): 
+async def buy_now(update: Update, context: CallbackContext):
     user_id = str(update.effective_user.id)
-    load_wallets()
+
     if user_id not in user_wallets:
-        await update.message.reply_text("❌ Create a wallet first with /start")
+        await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
         return
-    
-    # Add your custom buy logic here
-    await update.message.reply_text(
-        "Redirecting to SOL purchase...",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Buy SOL Now", url="YOUR_BUY_LINK_HERE")]
-        ])
-    )
+
+    if user_id not in user_buy_targets:
+        await context.bot.send_message(chat_id=user_id, text="❌ No buy order found. Use /set_buy to create one.")
+        return
+
+    buy_order = user_buy_targets[user_id]
+    await execute_buy(user_id, buy_order["amount"], buy_order["price"], context)
 
 
 
@@ -809,6 +853,10 @@ async def sell_now(user_id, sell_amount, target_price, context: CallbackContext)
     if user_id not in user_wallets:
         logging.warning(f"🚨 User {user_id} does not have a wallet.")
         await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
+        return
+
+    if user_id not in user_sell_targets:
+        await context.bot.send_message(chat_id=user_id, text="❌ No sell order found. Use /set_sell_target to create one.")
         return
 
     user_wallet = user_wallets[user_id]
@@ -872,38 +920,60 @@ async def sell_now(user_id, sell_amount, target_price, context: CallbackContext)
         await context.bot.send_message(chat_id=user_id, text="🚨 **Sell Order Failed**. Please check your wallet and try again.")
 
 
+async def sell_now(update: Update, context: CallbackContext):
+    user_id = str(update.effective_user.id)
+
+    if user_id not in user_wallets:
+        await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
+        return
+
+    if user_id not in user_sell_targets:
+        await context.bot.send_message(chat_id=user_id, text="❌ No sell order found. Use /set_sell_target to create one.")
+        return
+
+    sell_order = user_sell_targets[user_id]
+    await execute_sell(user_id, sell_order["amount"], sell_order["price"], context)
+
+
 async def set_buy_target(update: Update, context: CallbackContext):
     """Allows users to set a buy target for auto-purchase"""
     user_id = str(update.effective_user.id)
 
     if user_id not in user_wallets:
-        await update.message.reply_text("❌ You need to create a wallet first with /start.")
+        await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
         return
 
+    query = update.callback_query  # Handle button clicks
+    if query:
+        await query.answer()
+        message_func = query.message.reply_text
+    else:
+        message_func = update.message.reply_text
+
     try:
-        if len(context.args) != 2:
-            await update.message.reply_text("❌ Usage: /set_buy <target_price> <amount>")
+        if not context.args or len(context.args) != 2:
+            await message_func("❌ Usage: /set_buy <target_price> <amount>")
             return
 
         target_price = float(context.args[0])  # Buy price in SOL
         buy_amount = float(context.args[1])  # Amount of tokens to buy
 
         if target_price <= 0 or buy_amount <= 0:
-            await update.message.reply_text("❌ Invalid values. Enter positive numbers.")
+            await message_func("❌ Invalid values. Enter positive numbers.")
             return
 
         # Store buy order
         user_buy_targets[user_id] = {"price": target_price, "amount": buy_amount}
 
-        await update.message.reply_text(
+        await message_func(
             f"✅ **Auto-Buy Order Set!**\n"
             f"🔹 Buy **{buy_amount} tokens** when price drops to **{target_price:.4f} SOL**."
         )
         logging.info(f"User {user_id} set buy order: {buy_amount} tokens at {target_price} SOL")
 
     except ValueError:
-        await update.message.reply_text("❌ Invalid format. Use numbers like: `/set_buy 0.005 1000`.")
-
+        await message_func("❌ Invalid format. Use numbers like: `/set_buy 0.005 1000`.")
+  
 
 
 async def transaction_history(update: Update, context: CallbackContext):
@@ -1001,6 +1071,21 @@ async def handle_button_click(update: Update, context: CallbackContext):
 
     load_wallets()
 
+    if query.data == "deposit":
+        # ✅ Generate the dynamic MoonPay link
+        moonpay_link = generate_moonpay_link(user_id)
+
+        # ✅ Send a message with a direct link
+        await query.message.reply_text(
+            "💰 **Deposit SOL**\n\n"
+            "Click the button below to buy SOL and deposit directly into your wallet.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Buy SOL Now", url=moonpay_link)]
+            ])
+        )
+        return  # ✅ Exit to avoid calling unknown actions
+
     # ✅ Button actions mapped to functions
     button_actions = {
         "wallet": wallet_info,
@@ -1014,7 +1099,9 @@ async def handle_button_click(update: Update, context: CallbackContext):
         "help": help_command,
         "reset_wallet": confirm_reset_wallet,
         "cancel_reset": lambda q, c: q.message.reply_text("Wallet reset canceled."),
-        "view_solscan": view_solscan
+        "view_solscan": view_solscan,
+        "buy_now": buy_now,
+        "sell_now": sell_now,
     }
 
     if query.data in button_actions:
@@ -1049,9 +1136,11 @@ def run_flask():
 
 
 async def run_telegram_bot():
+    """Starts the bot using polling"""
     bot = Application.builder().token(TOKEN).build()
 
-    # ✅ Register all command handlers
+    # ✅ Register command handlers
+    bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("wallet", wallet_info))
     bot.add_handler(CommandHandler("deposit", deposit_info))
     bot.add_handler(CommandHandler("set_sell_target", set_sell_target))
@@ -1063,46 +1152,27 @@ async def run_telegram_bot():
     bot.add_handler(CommandHandler("help", help_command))
     bot.add_handler(CommandHandler("view_solscan", view_solscan))
 
+    # ✅ Register button click handlers
+    bot.add_handler(CallbackQueryHandler(handle_button_click))
+
     logging.info("🤖 Telegram Bot is Running and Polling for Updates...")
 
-    # ✅ Check if the event loop is already running
-    while True:
-        try:
-            await bot.run_polling(allowed_updates=Update.ALL_TYPES)
-        except RuntimeError as e:
-            logging.error(f"⚠️ Event loop error: {e}")
-            await asyncio.sleep(5)  # ✅ Short delay before retrying
-        except Exception as e:
-            logging.error(f"🚨 Unexpected bot crash: {e}")
-            await asyncio.sleep(10)  # ✅ Wait before restarting
+    await bot.run_polling()  # ✅ Ensure polling is started
 
-  
+
 if __name__ == "__main__":
-    # ✅ Set up database before starting services
     setup_database()
 
     loop = asyncio.get_event_loop()
 
-    # ✅ Run both services in parallel
     try:
         loop.run_until_complete(
             asyncio.gather(
-                price_monitor(),   # ✅ Run price monitoring task
-                run_telegram_bot()  # ✅ Run Telegram bot task
+                price_monitor(),   # ✅ Background task for price monitoring
+                run_telegram_bot()  # ✅ Run Telegram bot using polling
             )
         )
     except KeyboardInterrupt:
         logging.info("🛑 Bot shutting down...")
     except Exception as e:
-        logging.error(f"🚨 Critical failure: {e}")   
-
-# if __name__ == "__main__":
-#     import nest_asyncio
-#     nest_asyncio.apply()  # ✅ Fixes "event loop already running" issue
-#     # asyncio.run(run_telegram_bot())
-#     setup_database()
-#     loop = asyncio.get_event_loop()
-#     loop.create_task(price_monitor())
-#     loop.create_task(run_telegram_bot())  # ✅ Run bot without blocking event loop
-#     loop.run_forever()  # ✅ Keeps everything running
-
+        logging.error(f"🚨 Critical failure: {e}")

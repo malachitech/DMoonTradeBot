@@ -160,7 +160,7 @@ rate_limiter = RateLimiter(max_calls=5, period=60)
 # ✅ Set up the database only once
 
 def setup_database():
-    """Ensures the transactions table is created on startup."""
+    """Ensure the transactions table exists before using it."""
     conn = sqlite3.connect("trading_bot.db")
     cursor = conn.cursor()
 
@@ -177,7 +177,7 @@ def setup_database():
 
     conn.commit()
     conn.close()
-    logging.info("✅ Database setup complete.")
+
 
 # ✅ Function to securely log transactions
 
@@ -298,26 +298,47 @@ async def get_sol_balance(wallet_address: str) -> float:
 
 
 # ✅ Fetch token balance securely
+# async def get_token_balance(wallet_address: str) -> float:
+#     """Fetch token balance securely with error handling."""
+#     try:
+#         wallet_pubkey = Pubkey.from_string(wallet_address)
+#         response = await solana_client.get_token_accounts_by_owner(wallet_pubkey, encoding="jsonParsed")
+
+#         # ✅ Validate API response before parsing
+#         if response and "result" in response and "value" in response["result"]:
+#             accounts = response["result"]["value"]
+
+#             if accounts:
+#                 token_amount = accounts[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+#                 return float(token_amount)
+
+#         logging.warning(f"⚠️ No token balance found for {wallet_address}")
+#         return 0.0
+
+#     except Exception as e:
+#         logging.error(f"🚨 Token balance retrieval error: {str(e)}")
+#         return 0.0
+
+
 async def get_token_balance(wallet_address: str) -> float:
-    """Fetch token balance securely with error handling."""
+    """Fetch token balance securely."""
     try:
         wallet_pubkey = Pubkey.from_string(wallet_address)
-        response = await solana_client.get_token_accounts_by_owner(wallet_pubkey, encoding="jsonParsed")
+        response = await solana_client.get_token_accounts_by_owner(wallet_pubkey)
 
-        # ✅ Validate API response before parsing
+        # ✅ Check response structure before accessing values
         if response and "result" in response and "value" in response["result"]:
             accounts = response["result"]["value"]
-
             if accounts:
-                token_amount = accounts[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
-                return float(token_amount)
+                return float(accounts[0]["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"])
 
         logging.warning(f"⚠️ No token balance found for {wallet_address}")
-        return 0.0
+        return 0.0  # Return zero if no balance found
 
     except Exception as e:
         logging.error(f"🚨 Token balance retrieval error: {str(e)}")
         return 0.0
+
 
 # ✅ Update wallet balances efficiently
 async def update_wallet_balances(user_id: str):
@@ -388,7 +409,7 @@ async def execute_swap(user_id: str, is_buy: bool, amount: float) -> dict:
 
 
 async def handle_sell_now(user_id):
-    """Securely execute a sell transaction when target price is met."""
+    """Automatically execute a sell when target price is reached."""
     if user_id not in user_wallets:
         logging.warning(f"User {user_id} does not have a wallet.")
         return
@@ -400,14 +421,20 @@ async def handle_sell_now(user_id):
         logging.warning(f"User {user_id} has no tokens to sell.")
         return
 
-    sell_amount = user_balance  # Selling full balance (adjustable)
+    sell_amount = user_balance  # Selling full balance
     target_price = user_sell_targets.get(user_id, None)
 
     if not target_price:
         logging.warning(f"User {user_id} has no sell target set.")
         return
 
-    await sell_now(user_id, sell_amount, target_price)
+    result = await execute_swap(user_id, sell_amount)  # ✅ Call execute_sell()
+    
+    if result["status"] == "success":
+        logging.info(f"✅ Auto-sell successful for {user_id}, TxID: {result['txid']}")
+    else:
+        logging.error(f"❌ Auto-sell failed for {user_id}: {result['message']}")
+
 
 
 async def price_monitor():
@@ -781,11 +808,12 @@ async def set_buy_target(update: Update, context: CallbackContext):
     load_wallets()
 
     if user_id not in user_wallets:
-        await update.message.reply_text("❌ You need to create a wallet first using /start.")
+        await update.effective_message.reply_text("❌ You need to create a wallet first using /start.")
         return ConversationHandler.END
 
-    await update.message.reply_text("📉 Enter the buy target price in SOL (e.g., 0.005).")
+    await update.effective_message.reply_text("📉 Enter the buy target price in SOL (e.g., 0.005).")
     return BUY_TARGET_INPUT  # Move to next step
+
 
 async def receive_buy_target(update: Update, context: CallbackContext):
     """Process the user's buy target input."""
@@ -818,16 +846,17 @@ async def receive_buy_target(update: Update, context: CallbackContext):
 SELL_TARGET_INPUT = range(1)
 
 async def set_sell_target(update: Update, context: CallbackContext):
-    """Ask the user for a sell target."""
+    """Handles sell target setup from both button clicks and commands."""
     user_id = str(update.effective_user.id)
     load_wallets()
 
     if user_id not in user_wallets:
-        await update.message.reply_text("❌ You need to create a wallet first using /start.")
+        await update.effective_message.reply_text("❌ No wallet found. Use /start to create one.")
         return ConversationHandler.END
 
-    await update.message.reply_text("🎯 Enter the sell target multiplier (e.g., 2.0).")
+    await update.effective_message.reply_text("🎯 Enter the sell target multiplier (e.g., 2.0)")
     return SELL_TARGET_INPUT  # Move to next step
+
 
 async def receive_sell_target(update: Update, context: CallbackContext):
     """Process the user's sell target input."""
@@ -927,78 +956,28 @@ async def buy_now(update: Update, context: CallbackContext):
     await execute_buy(user_id, buy_order["amount"], buy_order["price"], context)
 
 
+async def sell_now(update: Update, context: CallbackContext):
+    """Execute an instant sell using the last sell target."""
+    user_id = str(update.effective_user.id)
+    load_wallets()
 
-async def sell_now(user_id, sell_amount, target_price, context: CallbackContext):
-    """Securely execute a signed sell transaction in production."""
-    
     if user_id not in user_wallets:
-        logging.warning(f"🚨 User {user_id} does not have a wallet.")
-        await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
+        await update.effective_message.reply_text("❌ No wallet found. Use /start to create one.")
         return
 
     if user_id not in user_sell_targets:
-        await context.bot.send_message(chat_id=user_id, text="❌ No sell order found. Use /set_sell_target to create one.")
+        await update.effective_message.reply_text("❌ No sell target found. Use /set_sell_target first.")
         return
 
-    user_wallet = user_wallets[user_id]
-    user_address = user_wallet["address"]
+    sell_amount = user_sell_amounts.get(user_id, 100)  # Default to 100 tokens
+    target_price = user_sell_targets[user_id]
+
+    result = await execute_swap(user_id, sell_amount)  # ✅ Call renamed `execute_sell()`
     
-    try:
-        user_private_key = cipher.decrypt(user_wallet["encrypted_key"].encode()).decode()
-        seller_keypair = Keypair.from_base58_string(user_private_key)  # Convert private key back to Keypair
-    except Exception as e:
-        logging.error(f"🔒 Private key decryption failed for user {user_id}: {e}")
-        await context.bot.send_message(chat_id=user_id, text="🚨 Error accessing wallet. Please contact support.")
-        return
-
-    # ✅ Check if user has enough tokens
-    user_balance = await get_token_balance(user_address, "TOKEN_ADDRESS_YOU_TRADE")
-    if sell_amount > user_balance:
-        logging.warning(f"⚠️ User {user_id} has insufficient balance ({user_balance} tokens).")
-        await context.bot.send_message(chat_id=user_id, text="🚨 **Insufficient Balance!** You do not have enough tokens to sell.")
-        return
-
-    # ✅ Create and sign the transaction securely
-    try:
-        recipient_address = ADMIN_WALLET  # Admin wallet receives the sold tokens
-        transaction = Transaction()
-        
-        params = TransferParams(
-            from_pubkey=seller_keypair.pubkey(),
-            to_pubkey=Pubkey.from_string(recipient_address),
-            lamports=int(sell_amount * 1e9),  # Convert tokens to lamports
-        )
-        
-        transaction.add(transfer(params))
-
-        # ✅ Securely fetch blockhash and sign transaction
-        blockhash_resp = await solana_client.get_latest_blockhash()
-        transaction.recent_blockhash = blockhash_resp.value.blockhash
-        transaction.partial_sign([seller_keypair])  # Securely sign transaction
-
-        # ✅ Send transaction and confirm success
-        response = await solana_client.send_transaction(transaction, seller_keypair)
-        confirmed = await solana_client.confirm_transaction(response.value)
-
-        if confirmed.value.err is None:
-            # ✅ Log transaction in database
-            log_transaction(user_id, sell_amount, target_price, response.value)
-
-            # ✅ Notify user of success
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"✅ **Sell Order Executed Successfully**\n"
-                     f"🔔 Sold {sell_amount} tokens at {target_price:.4f} SOL\n"
-                     f"🔗 [View Transaction](https://solscan.io/tx/{response.value})"
-            )
-            logging.info(f"✅ User {user_id} sold {sell_amount} tokens at {target_price} SOL")
-
-        else:
-            raise Exception(f"Transaction failed: {confirmed.value.err}")
-
-    except Exception as e:
-        logging.error(f"❌ Sell transaction failed for user {user_id}: {e}")
-        await context.bot.send_message(chat_id=user_id, text="🚨 **Sell Order Failed**. Please check your wallet and try again.")
+    if result["status"] == "success":
+        await update.effective_message.reply_text(f"✅ Sell order executed! TxID: {result['txid']}")
+    else:
+        await update.effective_message.reply_text(f"❌ Sell failed: {result['message']}")
 
 
 
@@ -1237,21 +1216,3 @@ async def run_telegram_bot():
     logging.info("🤖 Telegram Bot is Running and Polling for Updates...")
 
     await bot.run_polling()  # ✅ Ensure polling is started
-
-
-if __name__ == "__main__":
-    setup_database()
-
-    loop = asyncio.get_event_loop()
-
-    try:
-        loop.run_until_complete(
-            asyncio.gather(
-                price_monitor(),   # ✅ Background task for price monitoring
-                run_telegram_bot()  # ✅ Run Telegram bot using polling
-            )
-        )
-    except KeyboardInterrupt:
-        logging.info("🛑 Bot shutting down...")
-    except Exception as e:
-        logging.error(f"🚨 Critical failure: {e}")

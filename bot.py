@@ -87,7 +87,7 @@ user_entry_prices = {}
 user_last_withdrawal = {}
 user_active_trades = {}
 user_buy_targets = {}
-
+BUY_TARGET_INPUT = range(1)
 # ✅ Define conversation state for input handling
 TARGET_INPUT = range(1)
 
@@ -772,63 +772,144 @@ async def monitor_market():
             logging.error(f"Market monitoring error: {e}")
             await asyncio.sleep(10)  # Retry after 10s if error occurs
 
-# Define conversation states
-TARGET_INPUT = range(1)
-
-async def set_sell_target(update: Update, context: CallbackContext):
-    """Handles sell target setup from both button clicks and commands."""
-    
-    # ✅ Support both commands & button clicks
-    query = update.callback_query
-    user_id = str(update.effective_user.id) if update.message else str(query.from_user.id)
-
-    load_wallets()
-    if user_id not in user_wallets:
-        if query:
-            await query.message.reply_text("❌ No wallet found. Use /start to create one.")
-        else:
-            await update.message.reply_text("❌ No wallet found. Use /start to create one.")
-        return ConversationHandler.END
-
-    # ✅ Reply properly based on how function is called
-    if query:
-        await query.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
-    else:
-        await update.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
-    
-    return TARGET_INPUT  # Move to next step in conversation
 
 
-async def receive_target_input(update: Update, context: CallbackContext):
-    """Step 2: Store user input and set sell target."""
+
+async def set_buy_target(update: Update, context: CallbackContext):
+    """Ask the user for a buy target."""
     user_id = str(update.effective_user.id)
     load_wallets()
-    try:
-        target = float(update.message.text)  # Get user input as float
-        user_sell_targets[user_id] = target
 
-        # Store entry price when target is set
-        token_address = "TOKEN_ADDRESS_YOU_TRADE"  # e.g., Bonk token address
-        current_price = await get_token_price(token_address)
-        user_entry_prices[user_id] = current_price
+    if user_id not in user_wallets:
+        await update.message.reply_text("❌ You need to create a wallet first using /start.")
+        return ConversationHandler.END
+
+    await update.message.reply_text("📉 Enter the buy target price in SOL (e.g., 0.005).")
+    return BUY_TARGET_INPUT  # Move to next step
+
+async def receive_buy_target(update: Update, context: CallbackContext):
+    """Process the user's buy target input."""
+    user_id = str(update.effective_user.id)
+    load_wallets()
+
+    try:
+        target_price = float(update.message.text)
+
+        if target_price <= 0:
+            await update.message.reply_text("❌ Invalid value. Enter a positive number.")
+            return BUY_TARGET_INPUT  # Ask again
+
+        # Store buy order with default amount (user can update later)
+        user_buy_targets[user_id] = {"price": target_price, "amount": 1000}  # Default amount
 
         await update.message.reply_text(
-            f"✅ Sell target set to {target}x\n" 
-            f"📌 Current price: {current_price} SOL\n"
-            f"🔔 The bot will sell when the price reaches {target * current_price} SOL."
+            f"✅ **Auto-Buy Order Set!**\n"
+            f"🔹 Buy **1000 tokens** when price drops to **{target_price:.4f} SOL**.\n"
+            "🔄 You can modify this amount anytime."
         )
+        logging.info(f"User {user_id} set buy order at {target_price} SOL")
+
         return ConversationHandler.END  # End conversation
 
     except ValueError:
-        await update.message.reply_text("❌ Invalid input. Please enter a valid number.")
-        return TARGET_INPUT  # Ask again
+        await update.message.reply_text("❌ Invalid input. Enter a valid number.")
+        return BUY_TARGET_INPUT  # Ask again
 
-# ✅ Add conversation handler in bot setup
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("set_target", set_sell_target)],
-    states={TARGET_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_target_input)]},
-    fallbacks=[]
-)
+SELL_TARGET_INPUT = range(1)
+
+async def set_sell_target(update: Update, context: CallbackContext):
+    """Ask the user for a sell target."""
+    user_id = str(update.effective_user.id)
+    load_wallets()
+
+    if user_id not in user_wallets:
+        await update.message.reply_text("❌ You need to create a wallet first using /start.")
+        return ConversationHandler.END
+
+    await update.message.reply_text("🎯 Enter the sell target multiplier (e.g., 2.0).")
+    return SELL_TARGET_INPUT  # Move to next step
+
+async def receive_sell_target(update: Update, context: CallbackContext):
+    """Process the user's sell target input."""
+    user_id = str(update.effective_user.id)
+    load_wallets()
+
+    try:
+        target_multiplier = float(update.message.text)
+
+        if target_multiplier <= 1:
+            await update.message.reply_text("❌ The target multiplier must be greater than 1.0.")
+            return SELL_TARGET_INPUT  # Ask again
+
+        # Store sell target multiplier
+        user_sell_targets[user_id] = target_multiplier
+
+        await update.message.reply_text(
+            f"✅ **Sell Target Set!**\n"
+            f"🔹 The bot will sell when the price reaches **{target_multiplier}x** of the entry price."
+        )
+        logging.info(f"User {user_id} set sell target at {target_multiplier}x")
+
+        return ConversationHandler.END  # End conversation
+
+    except ValueError:
+        await update.message.reply_text("❌ Invalid input. Enter a valid number.")
+        return SELL_TARGET_INPUT  # Ask again
+
+# async def set_sell_target(update: Update, context: CallbackContext):
+#     """Handles sell target setup from both button clicks and commands."""
+    
+#     # ✅ Support both commands & button clicks
+#     query = update.callback_query
+#     user_id = str(update.effective_user.id) if update.message else str(query.from_user.id)
+
+#     load_wallets()
+#     if user_id not in user_wallets:
+#         if query:
+#             await query.message.reply_text("❌ No wallet found. Use /start to create one.")
+#         else:
+#             await update.message.reply_text("❌ No wallet found. Use /start to create one.")
+#         return ConversationHandler.END
+
+#     # ✅ Reply properly based on how function is called
+#     if query:
+#         await query.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
+#     else:
+#         await update.message.reply_text("🎯 Please enter your sell target multiplier (e.g., 2.0)")
+    
+#     return TARGET_INPUT  # Move to next step in conversation
+
+
+# async def receive_target_input(update: Update, context: CallbackContext):
+#     """Step 2: Store user input and set sell target."""
+#     user_id = str(update.effective_user.id)
+#     load_wallets()
+#     try:
+#         target = float(update.message.text)  # Get user input as float
+#         user_sell_targets[user_id] = target
+
+#         # Store entry price when target is set
+#         token_address = "TOKEN_ADDRESS_YOU_TRADE"  # e.g., Bonk token address
+#         current_price = await get_token_price(token_address)
+#         user_entry_prices[user_id] = current_price
+
+#         await update.message.reply_text(
+#             f"✅ Sell target set to {target}x\n" 
+#             f"📌 Current price: {current_price} SOL\n"
+#             f"🔔 The bot will sell when the price reaches {target * current_price} SOL."
+#         )
+#         return ConversationHandler.END  # End conversation
+
+#     except ValueError:
+#         await update.message.reply_text("❌ Invalid input. Please enter a valid number.")
+#         return TARGET_INPUT  # Ask again
+
+# # ✅ Add conversation handler in bot setup
+# conv_handler = ConversationHandler(
+#     entry_points=[CommandHandler("set_target", set_sell_target)],
+#     states={TARGET_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_target_input)]},
+#     fallbacks=[]
+# )
 
 
 async def buy_now(update: Update, context: CallbackContext):
@@ -920,59 +1001,45 @@ async def sell_now(user_id, sell_amount, target_price, context: CallbackContext)
         await context.bot.send_message(chat_id=user_id, text="🚨 **Sell Order Failed**. Please check your wallet and try again.")
 
 
-async def sell_now(update: Update, context: CallbackContext):
-    user_id = str(update.effective_user.id)
 
-    if user_id not in user_wallets:
-        await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
-        return
+# async def set_buy_target(update: Update, context: CallbackContext):
+#     """Allows users to set a buy target for auto-purchase"""
+#     user_id = str(update.effective_user.id)
 
-    if user_id not in user_sell_targets:
-        await context.bot.send_message(chat_id=user_id, text="❌ No sell order found. Use /set_sell_target to create one.")
-        return
+#     if user_id not in user_wallets:
+#         await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
+#         return
 
-    sell_order = user_sell_targets[user_id]
-    await execute_sell(user_id, sell_order["amount"], sell_order["price"], context)
+#     query = update.callback_query  # Handle button clicks
+#     if query:
+#         await query.answer()
+#         message_func = query.message.reply_text
+#     else:
+#         message_func = update.message.reply_text
 
+#     try:
+#         if not context.args or len(context.args) != 2:
+#             await message_func("❌ Usage: /set_buy <target_price> <amount>")
+#             return
 
-async def set_buy_target(update: Update, context: CallbackContext):
-    """Allows users to set a buy target for auto-purchase"""
-    user_id = str(update.effective_user.id)
+#         target_price = float(context.args[0])  # Buy price in SOL
+#         buy_amount = float(context.args[1])  # Amount of tokens to buy
 
-    if user_id not in user_wallets:
-        await context.bot.send_message(chat_id=user_id, text="❌ You need to create a wallet first using /start.")
-        return
+#         if target_price <= 0 or buy_amount <= 0:
+#             await message_func("❌ Invalid values. Enter positive numbers.")
+#             return
 
-    query = update.callback_query  # Handle button clicks
-    if query:
-        await query.answer()
-        message_func = query.message.reply_text
-    else:
-        message_func = update.message.reply_text
+#         # Store buy order
+#         user_buy_targets[user_id] = {"price": target_price, "amount": buy_amount}
 
-    try:
-        if not context.args or len(context.args) != 2:
-            await message_func("❌ Usage: /set_buy <target_price> <amount>")
-            return
+#         await message_func(
+#             f"✅ **Auto-Buy Order Set!**\n"
+#             f"🔹 Buy **{buy_amount} tokens** when price drops to **{target_price:.4f} SOL**."
+#         )
+#         logging.info(f"User {user_id} set buy order: {buy_amount} tokens at {target_price} SOL")
 
-        target_price = float(context.args[0])  # Buy price in SOL
-        buy_amount = float(context.args[1])  # Amount of tokens to buy
-
-        if target_price <= 0 or buy_amount <= 0:
-            await message_func("❌ Invalid values. Enter positive numbers.")
-            return
-
-        # Store buy order
-        user_buy_targets[user_id] = {"price": target_price, "amount": buy_amount}
-
-        await message_func(
-            f"✅ **Auto-Buy Order Set!**\n"
-            f"🔹 Buy **{buy_amount} tokens** when price drops to **{target_price:.4f} SOL**."
-        )
-        logging.info(f"User {user_id} set buy order: {buy_amount} tokens at {target_price} SOL")
-
-    except ValueError:
-        await message_func("❌ Invalid format. Use numbers like: `/set_buy 0.005 1000`.")
+#     except ValueError:
+#         await message_func("❌ Invalid format. Use numbers like: `/set_buy 0.005 1000`.")
   
 
 
@@ -1133,6 +1200,18 @@ def run_flask():
         logging.info(f"🌍 Running Flask Locally on port {PORT}")
         serve(app, host="0.0.0.0", port=PORT)
 
+
+conv_handler_buy = ConversationHandler(
+    entry_points=[CommandHandler("set_buy_target", set_buy_target)],
+    states={BUY_TARGET_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_buy_target)]},
+    fallbacks=[]
+)
+
+conv_handler_sell = ConversationHandler(
+    entry_points=[CommandHandler("set_sell_target", set_sell_target)],
+    states={SELL_TARGET_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_sell_target)]},
+    fallbacks=[]
+)
 
 
 async def run_telegram_bot():
